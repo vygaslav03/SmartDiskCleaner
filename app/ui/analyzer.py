@@ -27,6 +27,7 @@ from app.core.space_analyzer import DirNode, SpaceAnalyzer, SpaceResult
 from app.utils import winpaths
 from app.utils.format_size import format_size, format_timestamp
 from app.utils.i18n import tr
+from app.utils.settings_store import Settings
 from app.ui import theme
 from app.ui.treemap import TreemapWidget
 from app.ui.widgets import Card, open_in_explorer, page_header
@@ -81,8 +82,9 @@ class ShareDelegate(QStyledItemDelegate):
 class AnalyzerPage(QWidget):
     find_large_requested = Signal(str)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, settings: Settings | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.settings = settings or Settings()
         self.result: SpaceResult | None = None
         self._task: Task | None = None
         self._syncing = False
@@ -215,6 +217,9 @@ class AnalyzerPage(QWidget):
         if self._task is not None:
             self._task.shutdown()
 
+    def update_settings(self, settings: Settings) -> None:
+        self.settings = settings
+
     def start(self) -> None:
         if self.busy:
             return
@@ -227,11 +232,12 @@ class AnalyzerPage(QWidget):
         self.result = None
         self.total_label.setText("—")
         self.details_label.setText("")
+        self.progress.setRange(0, 0)
         self.progress.setVisible(True)
         self.status.setText(tr("large.scanning_start"))
         self._task = Task(
             self,
-            SpaceAnalyzer().analyze,
+            SpaceAnalyzer(prefer_mft=self.settings.fast_analysis).analyze,
             root,
             on_progress=self._on_progress,
             on_finished=self._on_finished,
@@ -259,6 +265,13 @@ class AnalyzerPage(QWidget):
         return data if data and data != "__browse__" else ""
 
     def _on_progress(self, p: dict) -> None:
+        if p.get("mode") == "mft":
+            pct = int(p.get("percent", 0))
+            if self.progress.maximum() != 100:
+                self.progress.setRange(0, 100)
+            self.progress.setValue(pct)
+            self.status.setText(tr("an.mft_progress", percent=pct, records=_num(p.get("files", 0))))
+            return
         current = p.get("current", "")
         if len(current) > 90:
             current = "…" + current[-88:]
@@ -274,6 +287,9 @@ class AnalyzerPage(QWidget):
         root = result.root
         self.total_label.setText(format_size(root.size))
         details = tr("an.details", files=_num(root.files), dirs=_num(root.dirs), seconds=f"{result.duration:.1f}")
+        details += "\n" + (tr("an.mode_mft") if result.method == "mft" else tr("an.mode_walk"))
+        if result.method != "mft" and self.settings.fast_analysis and result.fallback_reason == "not_admin":
+            details += " " + tr("an.mft_hint_admin")
         if result.errors:
             details += "\n" + tr("an.errors", count=_num(result.errors))
         if result.cloud_only_files:

@@ -62,13 +62,41 @@ class SpaceResult:
     cloud_only_files: int = 0
     duration: float = 0.0
     cancelled: bool = False
+    method: str = "walk"  # "walk" — обход папок, "mft" — чтение таблицы NTFS
+    fallback_reason: str = ""  # почему не MFT (если пробовали)
 
 
 class SpaceAnalyzer:
-    def __init__(self, top_files_per_dir: int = TOP_FILES_PER_DIR) -> None:
+    def __init__(self, top_files_per_dir: int = TOP_FILES_PER_DIR, prefer_mft: bool = False) -> None:
         self.top_n = max(1, top_files_per_dir)
+        self.prefer_mft = prefer_mft
 
     def analyze(
+        self,
+        root: str,
+        progress_cb=None,
+        cancel_event: threading.Event | None = None,
+    ) -> SpaceResult:
+        """Быстрый путь через MFT (если разрешён и возможен), иначе — обычный обход папок."""
+        reason = ""
+        if self.prefer_mft:
+            from app.core.mft_reader import MftAnalyzer, mft_unavailable_reason
+
+            real_root = winpaths.strip_long_prefix(os.path.realpath(root))
+            reason = mft_unavailable_reason(real_root) or ""
+            if not reason:
+                try:
+                    return MftAnalyzer(self.top_n).analyze(real_root, progress_cb, cancel_event)
+                except Exception as e:  # noqa: BLE001 — любая ошибка MFT -> безопасный обычный обход
+                    log.warning("MFT недоступна для %s, обычный обход: %s", real_root, e)
+                    reason = "error"
+            else:
+                log.info("MFT не используется (%s), обычный обход", reason)
+        result = self._walk(root, progress_cb, cancel_event)
+        result.fallback_reason = reason
+        return result
+
+    def _walk(
         self,
         root: str,
         progress_cb=None,

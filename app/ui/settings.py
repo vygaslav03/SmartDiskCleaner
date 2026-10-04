@@ -131,6 +131,12 @@ class SettingsPage(QWidget):
         pf_hint.setObjectName("Muted")
         pf_hint.setWordWrap(True)
         safe.layout_.addWidget(pf_hint)
+        self.fast_analysis = QCheckBox(tr("set.fast_analysis"))
+        safe.layout_.addWidget(self.fast_analysis)
+        fa_hint = QLabel(tr("set.fast_analysis_hint"))
+        fa_hint.setObjectName("Muted")
+        fa_hint.setWordWrap(True)
+        safe.layout_.addWidget(fa_hint)
 
         safe.layout_.addWidget(self._section(tr("set.exclusions")))
         ex_hint = QLabel(tr("set.exclusions_hint"))
@@ -220,6 +226,7 @@ class SettingsPage(QWidget):
         self.allow_pf.setChecked(s.allow_program_files)
         self.q_enabled.setChecked(s.quarantine_enabled)
         self.q_days.setValue(s.quarantine_days)
+        self.fast_analysis.setChecked(s.fast_analysis)
         self.q_days.setEnabled(s.quarantine_enabled)
         self.exclusions.clear()
         for e in s.exclusions:
@@ -323,6 +330,7 @@ class SettingsPage(QWidget):
         new.allow_program_files = self.allow_pf.isChecked()
         new.quarantine_enabled = self.q_enabled.isChecked()
         new.quarantine_days = self.q_days.value()
+        new.fast_analysis = self.fast_analysis.isChecked()
         new.exclusions = [self.exclusions.item(i).text() for i in range(self.exclusions.count())]
         new.validate()
         if not save_settings(new):

@@ -13,7 +13,7 @@ It never deletes anything without your explicit confirmation, and every file pas
 ![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6%20(Qt%206)-41CD52?logo=qt&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?logo=windows&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-144%20unit%20%2B%20GUI%20self--test-brightgreen)
+![Tests](https://img.shields.io/badge/tests-159%20unit%20%2B%20GUI%20self--test-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 [**Download .exe**](https://github.com/vygaslav03/SmartDiskCleaner/releases/latest) ·
@@ -37,7 +37,7 @@ It never deletes anything without your explicit confirmation, and every file pas
 | **Smart Clean** | Pre-selects only safe categories and always shows the full list before anything is deleted |
 | **Quarantine & undo** | Cleaned junk is first moved to a quarantine folder (same drive, instant) and kept for 7 days — restore it with one click; restoring never overwrites existing files |
 | **Per-file control** | Open *Details* and uncheck individual files you want to keep |
-| **Disk analyzer** | Interactive treemap (click to select, double-click to drill down) synced with a folder tree sorted by size, share bars and the biggest files in each folder (read-only) |
+| **Disk analyzer** | Interactive treemap (click to select, double-click to drill down) synced with a folder tree sorted by size, share bars and the biggest files in each folder. For a whole drive, when run as administrator, it reads the NTFS file table (MFT) directly — several times faster than opening every folder (read-only) |
 | **Large files** | Finds files over 100 MB … 10 GB; deletion requires a separate confirmation with a checkbox |
 | **Duplicates** | Size → partial hash → full BLAKE2b; at least one copy in every group is always kept |
 | **Windows tools** | `Windows.old` via built-in Disk Cleanup and component store cleanup via `DISM /StartComponentCleanup` (admin only, never auto-selected) |
@@ -112,7 +112,7 @@ build.bat                &:: tests + PyInstaller -> dist\DiskCleaner.exe
 
 | Layer | What it covers |
 |---|---|
-| **Unit tests** — `tests/`, 144 | safety policy, path traversal, symlink/junction escapes, files changed after scan, scanner rules, cleaner, duplicates, analyzer, Windows tools (mocked), history, Winapp2 import, quarantine, treemap layout |
+| **Unit tests** — `tests/`, 159 | safety policy, path traversal, symlink/junction escapes, files changed after scan, scanner rules, cleaner, duplicates, analyzer, Windows tools (mocked), history, Winapp2 import, quarantine, treemap layout, NTFS MFT parser (synthetic disk images) |
 | **GUI self-test** — `--selftest` | opens every page in both themes, runs real **read-only** scans, checks UI invariants, saves screenshots; all delete functions are blocked |
 | **CI** — GitHub Actions, `windows-latest` | unit tests → GUI self-test (offscreen) → build `DiskCleaner.exe` → artifacts; a `v*` tag publishes a release |
 
@@ -124,7 +124,7 @@ Destructive tests run only inside temporary folders — never on real system dir
 app/
   core/      safety · categories · scanner · cleaner · recycle_bin
              disk_analyzer · space_analyzer · duplicate_finder
-             system_cleanup · processes · history · winapp2 · quarantine · treemap
+             system_cleanup · processes · history · winapp2 · quarantine · treemap · mft_reader
   ui/        main_window · dashboard · cleaner · analyzer · large_files
              duplicates · history · quarantine · settings · treemap · widgets · workers · theme
   models/    file_item · scan_result
@@ -137,7 +137,7 @@ tests/       unit tests
 
 - Files locked by running programs are skipped — close them first (the app tells you which).
 - System categories (`C:\Windows\Temp`, Windows Update, DISM) need administrator rights.
-- The disk analyzer walks the file system (about 20–60 s for 500k files); it does not read the NTFS MFT directly yet.
+- Fast MFT analysis is used for whole NTFS drives and needs administrator rights; otherwise the analyzer walks folders (about 20–60 s for 500k files). Files written in the last few seconds may not be in the on-disk MFT yet.
 - The space freed by DISM is known only after it finishes.
 
 ## License

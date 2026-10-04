@@ -100,7 +100,7 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.dashboard = DashboardPage()
         self.cleaner = CleanerPage(settings)
-        self.analyzer = AnalyzerPage()
+        self.analyzer = AnalyzerPage(settings)
         self.large = LargeFilesPage(settings)
         self.duplicates = DuplicatesPage(settings)
         self.history = HistoryPage()
@@ -168,7 +168,7 @@ class MainWindow(QMainWindow):
 
     def _on_settings_changed(self, settings: Settings) -> None:
         self.settings = settings
-        for page in (self.cleaner, self.large, self.duplicates, self.quarantine):
+        for page in (self.cleaner, self.analyzer, self.large, self.duplicates, self.quarantine):
             page.update_settings(settings)
         app = QApplication.instance()
         if app is not None:

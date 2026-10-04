@@ -407,9 +407,16 @@ def _run_steps(app, out: Path, sandbox: Path, settings, theme, set_language) -> 
         page = win.analyzer
         page.root_combo.insertItem(0, str(sandbox), str(sandbox))
         page.root_combo.setCurrentIndex(0)
-        page.start()
-        if not _wait(app, lambda: not page.busy, 60):
-            raise TimeoutError("analyzer sandbox > 60s")
+        # Только что созданные файлы могут ещё не попасть в MFT на диске (ленивая запись NTFS),
+        # поэтому песочницу проверяем обычным обходом.
+        fast = page.settings.fast_analysis
+        page.settings.fast_analysis = False
+        try:
+            page.start()
+            if not _wait(app, lambda: not page.busy, 60):
+                raise TimeoutError("analyzer sandbox > 60s")
+        finally:
+            page.settings.fast_analysis = fast
         expected = sum(p.stat().st_size for p in sandbox.rglob("*") if p.is_file())
         got = page.result.root.size if page.result else -1
         _log(f"     analyzer sandbox: {format_size(got)} (expected {format_size(expected)})")
@@ -480,14 +487,91 @@ def _run_steps(app, out: Path, sandbox: Path, settings, theme, set_language) -> 
         r = page.result
         if r is None:
             raise RuntimeError("no analyzer result")
-        _log(f"     analyzer drive: {format_size(r.root.size)}, files={r.scanned_files}, dirs={r.scanned_dirs}, "
-             f"errors={r.errors}, links={r.skipped_links}, cloud={r.cloud_only_files}, {time.monotonic()-t0:.1f}s")
+        _log(f"     analyzer drive [{r.method}]: {format_size(r.root.size)}, files={r.scanned_files}, "
+             f"dirs={r.scanned_dirs}, errors={r.errors}, links={r.skipped_links}, cloud={r.cloud_only_files}, "
+             f"{time.monotonic()-t0:.1f}s" + (f", fallback={r.fallback_reason}" if r.fallback_reason else ""))
         top = page.tree.topLevelItem(0)
         if top is not None and top.childCount():
             top.child(0).setExpanded(True)
 
     _step("analyzer system drive", analyzer_drive)
     _shot(app, win, out, "dark_2_analyzer_drive")
+
+    # --- быстрый анализ (MFT) против обычного обхода — только с правами администратора
+    def mft_vs_walk():
+        from app.core.mft_reader import MftAnalyzer, mft_unavailable_reason
+        from app.core.space_analyzer import SpaceAnalyzer
+        from app.utils.winpaths import system_drive
+
+        drive = system_drive()
+        reason = mft_unavailable_reason(drive)
+        if reason:
+            _log(f"     MFT: пропущено ({reason}) — для проверки запустите selftest от имени администратора")
+            return
+        t0 = time.monotonic()
+        m = MftAnalyzer().analyze(drive)
+        t_mft = time.monotonic() - t0
+        _log(f"     MFT drive: {format_size(m.root.size)}, files={m.scanned_files}, dirs={m.scanned_dirs}, "
+             f"links={m.skipped_links}, cloud={m.cloud_only_files}, {t_mft:.1f}s")
+        profile = os.path.realpath(os.environ.get("USERPROFILE", ""))
+        if not profile or not os.path.isdir(profile):
+            return
+        t0 = time.monotonic()
+        mp = MftAnalyzer().analyze(profile)
+        t1 = time.monotonic()
+        wp = SpaceAnalyzer()._walk(profile)
+        t2 = time.monotonic()
+        a, b = mp.root.size, wp.root.size
+
+        def find(node, *names):
+            for name in names:
+                node = next((c for c in node.children if c.name.lower() == name), None)
+                if node is None:
+                    return 0
+            return node.size
+
+        # %TEMP% постоянно меняется, а у открытых на запись файлов обход видит устаревший размер
+        # из индекса папки (часто 0 B) — MFT хранит настоящий. Для порога сравниваем без него.
+        tmp_m, tmp_w = find(mp.root, "appdata", "local", "temp"), find(wp.root, "appdata", "local", "temp")
+        diff = abs((a - tmp_m) - (b - tmp_w)) / max(a - tmp_m, b - tmp_w, 1) * 100
+        _log(f"     profile MFT {format_size(a)} ({mp.root.files} files, {t1-t0:.1f}s) vs "
+             f"walk {format_size(b)} ({wp.root.files} files, {t2-t1:.1f}s, errors={wp.errors}); "
+             f"Temp: MFT {format_size(tmp_m)} vs walk {format_size(tmp_w)}; diff without Temp {diff:.2f}%")
+        _log(f"       files: MFT {mp.root.files}, walk {wp.root.files}; cloud: MFT {mp.cloud_only_files}, "
+             f"walk {wp.cloud_only_files}; links: MFT {mp.skipped_links}, walk {wp.skipped_links}")
+
+        # Где именно расходятся размеры: спускаемся по папкам с наибольшей разницей (> 50 MB).
+        def drill(m_node, w_node, depth=0):
+            if depth > 7:
+                return
+            own_d = m_node.own_size - w_node.own_size
+            if abs(own_d) >= 50 * 1024 * 1024:
+                _log(f"       own files of {w_node.path}: MFT {format_size(m_node.own_size)} ({m_node.own_files}) "
+                     f"vs walk {format_size(w_node.own_size)} ({w_node.own_files})")
+                m_top = {f.name.lower(): f.size for f in m_node.top_files}
+                for f in w_node.top_files[:30]:
+                    if m_top.get(f.name.lower(), -1) != f.size:
+                        _log(f"         {f.name}: MFT {format_size(m_top.get(f.name.lower(), 0))} "
+                             f"vs walk {format_size(f.size)}")
+            m_kids = {c.name.lower(): c for c in m_node.children}
+            w_kids = {c.name.lower(): c for c in w_node.children}
+            for name in sorted(set(m_kids) | set(w_kids)):
+                mc, wc = m_kids.get(name), w_kids.get(name)
+                if mc is None or wc is None:
+                    only = mc or wc
+                    if only.size >= 50 * 1024 * 1024:
+                        _log(f"       only in {'MFT' if mc else 'walk'}: {only.path} {format_size(only.size)}")
+                    continue
+                if abs(mc.size - wc.size) >= 50 * 1024 * 1024:
+                    _log(f"       {wc.path}: MFT {format_size(mc.size)} ({mc.files}) vs walk "
+                         f"{format_size(wc.size)} ({wc.files})")
+                    drill(mc, wc, depth + 1)
+
+        drill(mp.root, wp.root)
+        if diff > 3:
+            raise AssertionError(f"MFT и обход расходятся на {diff:.1f}% в профиле")
+
+    _step("MFT vs walk", mft_vs_walk)
 
     # --- большие файлы во временной папке
     def large():
