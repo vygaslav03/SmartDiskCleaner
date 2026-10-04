@@ -186,6 +186,12 @@ def _run_steps(app, out: Path, sandbox: Path, settings, theme, set_language) -> 
     big.parent.mkdir(parents=True, exist_ok=True)
     with open(big, "wb") as fh:
         fh.truncate(120 * 1024 * 1024)  # разреженный файл 120 МБ, место почти не занимает
+    # вложенные папки — для проверки второго уровня treemap и перехода внутрь
+    for rel, kb in (("projects/app/src/main.bin", 900), ("projects/app/assets/logo.bin", 400),
+                    ("projects/site/index.bin", 250), ("music/album/track.bin", 700)):
+        p = sandbox / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(os.urandom(kb * 1024))
 
     set_language("ru")
     theme.apply_theme(app, "dark")
@@ -415,6 +421,52 @@ def _run_steps(app, out: Path, sandbox: Path, settings, theme, set_language) -> 
 
     _step("analyzer sandbox", analyzer)
     _shot(app, win, out, "dark_2_analyzer_sandbox")
+
+    def treemap_check():
+        from PySide6.QtCore import Qt
+
+        from app.core.space_analyzer import DirNode
+
+        page = win.analyzer
+        tm = page.treemap
+        app.processEvents()
+        root = page.result.root if page.result else None
+        if root is None or tm.view is not root:
+            raise AssertionError("treemap не показывает корень анализа")
+        keys = tm.visible_keys()
+        if not keys:
+            raise AssertionError("treemap пуст")
+        area = sum(r.area for r in tm._rects)
+        full = tm.width() * tm.height()
+        if full <= 0 or abs(area - full) > full * 0.001:
+            raise AssertionError(f"площадь treemap {area:.0f} != {full}")
+        for r in tm._rects:
+            if r.x < -0.5 or r.y < -0.5 or r.x + r.w > tm.width() + 0.5 or r.y + r.h > tm.height() + 0.5:
+                raise AssertionError(f"прямоугольник за границей: {r}")
+        dirs = [k for k in keys if isinstance(k, DirNode)]
+        if not dirs:
+            raise AssertionError("в treemap нет папок")
+        biggest = max(dirs, key=lambda d: d.size)
+        if tm.rect_for(biggest) is not max((tm.rect_for(d) for d in dirs), key=lambda r: r.area):
+            raise AssertionError("самая большая папка не самый большой прямоугольник")
+        # клик -> выделение в дереве
+        page._on_map_selected(biggest)
+        cur = page.tree.currentItem()
+        if cur is None or cur.data(0, Qt.ItemDataRole.UserRole + 1) != biggest.path:
+            raise AssertionError("клик по treemap не выделил папку в дереве")
+        target = next((d for d in sorted(dirs, key=lambda d: -d.size) if d.children), None)
+        if target is not None:
+            page._on_map_activated(target)
+            app.processEvents()
+            if tm.view is not target or not page.up_btn.isEnabled():
+                raise AssertionError("двойной клик не зашёл в папку")
+            _shot(app, win, out, "dark_2_treemap_inside")
+            page._treemap_up()
+            if tm.view is not root or page.up_btn.isEnabled():
+                raise AssertionError("кнопка «Вверх» не вернула к корню")
+        _log(f"     treemap: {len(keys)} blocks, drill/up/tree sync OK")
+
+    _step("treemap", treemap_check)
 
     def analyzer_drive():
         page = win.analyzer

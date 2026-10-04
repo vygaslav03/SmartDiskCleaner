@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QProgressBar,
+    QSplitter,
     QPushButton,
     QStyle,
     QStyledItemDelegate,
@@ -27,6 +28,7 @@ from app.utils import winpaths
 from app.utils.format_size import format_size, format_timestamp
 from app.utils.i18n import tr
 from app.ui import theme
+from app.ui.treemap import TreemapWidget
 from app.ui.widgets import Card, open_in_explorer, page_header
 from app.ui.workers import Task
 
@@ -83,6 +85,7 @@ class AnalyzerPage(QWidget):
         super().__init__(parent)
         self.result: SpaceResult | None = None
         self._task: Task | None = None
+        self._syncing = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(28, 24, 28, 24)
@@ -150,8 +153,36 @@ class AnalyzerPage(QWidget):
             self.tree.setColumnWidth(col, width)
         self.tree.itemExpanded.connect(self._on_expanded)
         self.tree.itemDoubleClicked.connect(lambda item, _c: self._open(item))
-        self.tree.currentItemChanged.connect(lambda *_: self._update_buttons())
-        root.addWidget(self.tree, 1)
+        self.tree.currentItemChanged.connect(self._on_tree_current)
+
+        # ---- treemap над деревом (в разделителе — пользователь сам выбирает пропорции)
+        map_card = Card()
+        mrow = QHBoxLayout()
+        self.up_btn = QPushButton(tr("tm.up"))
+        self.up_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowUp))
+        self.up_btn.clicked.connect(self._treemap_up)
+        self.crumb = QLabel("")
+        self.crumb.setObjectName("Muted")
+        self.crumb.setMinimumWidth(10)
+        hint = QLabel(tr("tm.hint"))
+        hint.setObjectName("Muted")
+        mrow.addWidget(self.up_btn)
+        mrow.addWidget(self.crumb, 1)
+        mrow.addWidget(hint)
+        map_card.layout_.addLayout(mrow)
+        self.treemap = TreemapWidget()
+        self.treemap.node_selected.connect(self._on_map_selected)
+        self.treemap.node_activated.connect(self._on_map_activated)
+        map_card.layout_.addWidget(self.treemap, 1)
+
+        self.splitter = QSplitter(Qt.Orientation.Vertical)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.addWidget(map_card)
+        self.splitter.addWidget(self.tree)
+        self.splitter.setStretchFactor(0, 1)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([320, 300])
+        root.addWidget(self.splitter, 1)
 
         actions = QHBoxLayout()
         self.open_btn = QPushButton(tr("btn.open_location"))
@@ -191,6 +222,8 @@ class AnalyzerPage(QWidget):
         if not root:
             return
         self.tree.clear()
+        self.treemap.clear()
+        self._update_crumb()
         self.result = None
         self.total_label.setText("—")
         self.details_label.setText("")
@@ -255,6 +288,8 @@ class AnalyzerPage(QWidget):
         top.setText(COL_NAME, root.path)
         self.tree.addTopLevelItem(top)
         top.setExpanded(True)
+        self.treemap.set_view(root)
+        self._update_crumb()
         self._update_buttons()
 
     def _on_failed(self, message: str) -> None:
@@ -328,6 +363,88 @@ class AnalyzerPage(QWidget):
             self._align(info)
             children.append(info)
         item.addChildren(children)
+
+    # ------------------------------------------------------------- treemap
+    def _update_crumb(self) -> None:
+        view = self.treemap.view
+        text = view.path if view is not None else ""
+        fm = self.crumb.fontMetrics()
+        self.crumb.setText(fm.elidedText(text, Qt.TextElideMode.ElideMiddle, max(80, self.crumb.width() - 4)))
+        self.crumb.setToolTip(text)
+        self.up_btn.setEnabled(view is not None and view.parent is not None)
+
+    def _treemap_up(self) -> None:
+        view = self.treemap.view
+        if view is None or view.parent is None:
+            return
+        self.treemap.set_view(view.parent)
+        self.treemap.set_selected(view)
+        self._update_crumb()
+        self._select_in_tree(view)
+
+    def _on_map_selected(self, node: DirNode) -> None:
+        self._select_in_tree(node)
+
+    def _on_map_activated(self, node: DirNode) -> None:
+        self.treemap.set_view(node)
+        self._update_crumb()
+        self._select_in_tree(node)
+
+    def _on_tree_current(self, item: QTreeWidgetItem | None, _prev=None) -> None:
+        self._update_buttons()
+        if self._syncing or item is None or item.data(COL_NAME, ROLE_KIND) != KIND_DIR:
+            return
+        node: DirNode | None = item.data(COL_NAME, ROLE_NODE)
+        if node is None:
+            return
+        if node.children or node.parent is None:
+            self.treemap.set_view(node)
+        else:
+            self.treemap.set_view(node.parent)
+            self.treemap.set_selected(node)
+        self._update_crumb()
+
+    def _find_item(self, node: DirNode) -> QTreeWidgetItem | None:
+        """Находит (раскрывая по пути) элемент дерева для папки."""
+        chain: list[DirNode] = []
+        n: DirNode | None = node
+        while n is not None:
+            chain.append(n)
+            n = n.parent
+        chain.reverse()
+        if self.tree.topLevelItemCount() == 0:
+            return None
+        item = self.tree.topLevelItem(0)
+        if item.data(COL_NAME, ROLE_PATH) != chain[0].path:
+            return None
+        for target in chain[1:]:
+            item.setExpanded(True)  # подгружает детей лениво
+            found = None
+            for i in range(item.childCount()):
+                child = item.child(i)
+                if child.data(COL_NAME, ROLE_KIND) == KIND_DIR and child.data(COL_NAME, ROLE_PATH) == target.path:
+                    found = child
+                    break
+            if found is None:
+                return item  # за пределами MAX_CHILD_DIRS — ближайший предок
+            item = found
+        return item
+
+    def _select_in_tree(self, node: DirNode) -> None:
+        item = self._find_item(node)
+        if item is None:
+            return
+        self._syncing = True
+        try:
+            self.tree.setCurrentItem(item)
+            self.tree.scrollToItem(item)
+        finally:
+            self._syncing = False
+        self._update_buttons()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._update_crumb()
 
     def _open(self, item: QTreeWidgetItem | None) -> None:
         if item is None:

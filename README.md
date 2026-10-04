@@ -13,7 +13,7 @@ It never deletes anything without your explicit confirmation, and every file pas
 ![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6%20(Qt%206)-41CD52?logo=qt&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?logo=windows&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-137%20unit%20%2B%20GUI%20self--test-brightgreen)
+![Tests](https://img.shields.io/badge/tests-144%20unit%20%2B%20GUI%20self--test-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 [**Download .exe**](https://github.com/vygaslav03/SmartDiskCleaner/releases/latest) ·
@@ -37,7 +37,7 @@ It never deletes anything without your explicit confirmation, and every file pas
 | **Smart Clean** | Pre-selects only safe categories and always shows the full list before anything is deleted |
 | **Quarantine & undo** | Cleaned junk is first moved to a quarantine folder (same drive, instant) and kept for 7 days — restore it with one click; restoring never overwrites existing files |
 | **Per-file control** | Open *Details* and uncheck individual files you want to keep |
-| **Disk analyzer** | Folder tree sorted by size with share bars and the biggest files in each folder (read-only) |
+| **Disk analyzer** | Interactive treemap (click to select, double-click to drill down) synced with a folder tree sorted by size, share bars and the biggest files in each folder (read-only) |
 | **Large files** | Finds files over 100 MB … 10 GB; deletion requires a separate confirmation with a checkbox |
 | **Duplicates** | Size → partial hash → full BLAKE2b; at least one copy in every group is always kept |
 | **Windows tools** | `Windows.old` via built-in Disk Cleanup and component store cleanup via `DISM /StartComponentCleanup` (admin only, never auto-selected) |
@@ -112,7 +112,7 @@ build.bat                &:: tests + PyInstaller -> dist\DiskCleaner.exe
 
 | Layer | What it covers |
 |---|---|
-| **Unit tests** — `tests/`, 137 | safety policy, path traversal, symlink/junction escapes, files changed after scan, scanner rules, cleaner, duplicates, analyzer, Windows tools (mocked), history, Winapp2 import |
+| **Unit tests** — `tests/`, 144 | safety policy, path traversal, symlink/junction escapes, files changed after scan, scanner rules, cleaner, duplicates, analyzer, Windows tools (mocked), history, Winapp2 import, quarantine, treemap layout |
 | **GUI self-test** — `--selftest` | opens every page in both themes, runs real **read-only** scans, checks UI invariants, saves screenshots; all delete functions are blocked |
 | **CI** — GitHub Actions, `windows-latest` | unit tests → GUI self-test (offscreen) → build `DiskCleaner.exe` → artifacts; a `v*` tag publishes a release |
 
@@ -124,9 +124,9 @@ Destructive tests run only inside temporary folders — never on real system dir
 app/
   core/      safety · categories · scanner · cleaner · recycle_bin
              disk_analyzer · space_analyzer · duplicate_finder
-             system_cleanup · processes · history · winapp2 · quarantine
+             system_cleanup · processes · history · winapp2 · quarantine · treemap
   ui/        main_window · dashboard · cleaner · analyzer · large_files
-             duplicates · history · quarantine · settings · widgets · workers · theme
+             duplicates · history · quarantine · settings · treemap · widgets · workers · theme
   models/    file_item · scan_result
   utils/     winpaths · permissions · settings_store · i18n · logger · paths
 tests/       unit tests
