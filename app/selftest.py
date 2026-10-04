@@ -18,6 +18,9 @@ from pathlib import Path
 
 REPORT: list[str] = []
 ERRORS: list[str] = []
+# Предупреждения Qt (например, ограничения offscreen-режима в CI) — не ошибки,
+# но записываются в отчёт отдельно.
+QT_WARNINGS: list[str] = []
 
 
 def _log(line: str) -> None:
@@ -83,8 +86,10 @@ def run_selftest() -> int:
     QMessageBox.exec = lambda self: _log(f"QMessageBox.exec: {self.text()[:200]}") or 0  # type: ignore
 
     def qt_handler(mode, _ctx, message):
-        if mode in (QtMsgType.QtWarningMsg, QtMsgType.QtCriticalMsg, QtMsgType.QtFatalMsg):
+        if mode in (QtMsgType.QtCriticalMsg, QtMsgType.QtFatalMsg):
             ERRORS.append(f"--- Qt {mode.name} ---\n{message}")
+        elif mode == QtMsgType.QtWarningMsg and len(QT_WARNINGS) < 200:
+            QT_WARNINGS.append(message)
 
     qInstallMessageHandler(qt_handler)
 
@@ -116,7 +121,17 @@ def run_selftest() -> int:
         if ERRORS:
             fh.write("\n\n===== ERRORS =====\n")
             fh.write("\n\n".join(ERRORS))
+        if QT_WARNINGS:
+            unique = sorted(set(QT_WARNINGS))
+            fh.write(f"\n\n===== QT WARNINGS (not errors): {len(QT_WARNINGS)}, unique {len(unique)} =====\n")
+            fh.write("\n".join(unique))
     print(f"Selftest finished: {status}. Report: {report}")
+    # В CI отчёт сразу виден в логе; у оконного .exe консоли нет — тогда пропускаем.
+    if sys.stdout is not None:
+        try:
+            print(report.read_text(encoding="utf-8"), flush=True)
+        except (OSError, UnicodeEncodeError):
+            pass
     return 0 if not ERRORS else 1
 
 
