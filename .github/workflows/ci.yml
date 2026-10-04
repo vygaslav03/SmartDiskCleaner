@@ -1,0 +1,68 @@
+# CI для DiskCleaner: на каждый push / pull request — тесты, самопроверка интерфейса
+# и сборка DiskCleaner.exe на настоящем Windows. При теге v* — релиз с exe.
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write  # нужно только для публикации релиза по тегу
+
+jobs:
+  test-and-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Unit tests
+        run: python -m pytest -v
+
+      - name: GUI self-test (read-only, offscreen)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python run.py --selftest
+
+      - name: Upload self-test report and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selftest-report
+          path: |
+            selftest/*.png
+            selftest/report.txt
+          if-no-files-found: ignore
+
+      - name: Build DiskCleaner.exe
+        run: >
+          python -m PyInstaller --noconfirm --clean --onefile --windowed
+          --name DiskCleaner --icon assets/icon.ico
+          --add-data "assets;assets" --hidden-import send2trash
+          --exclude-module tkinter --exclude-module pytest
+          run.py
+
+      - name: Upload DiskCleaner.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: DiskCleaner-exe
+          path: dist/DiskCleaner.exe
+
+      - name: Publish release (tags v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/DiskCleaner.exe
+          generate_release_notes: true

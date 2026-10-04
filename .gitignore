@@ -1,0 +1,13 @@
+dist/
+build/
+.venv/
+__pycache__/
+*.spec
+logs/
+selftest/
+settings.json
+history.json
+history.bad
+winapp2.ini
+.pytest_cache/
+.ruff_cache/
