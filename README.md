@@ -13,7 +13,7 @@ It never deletes anything without your explicit confirmation, and every file pas
 ![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6%20(Qt%206)-41CD52?logo=qt&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?logo=windows&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-126%20unit%20%2B%20GUI%20self--test-brightgreen)
+![Tests](https://img.shields.io/badge/tests-137%20unit%20%2B%20GUI%20self--test-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 [**Download .exe**](https://github.com/vygaslav03/SmartDiskCleaner/releases/latest) ·
@@ -35,6 +35,7 @@ It never deletes anything without your explicit confirmation, and every file pas
 | **Junk cleaner** | Windows & user temp files, Windows/shader caches, thumbnail cache, crash dumps, Windows Update cache, Delivery Optimization, error reports, old logs, Recycle Bin |
 | **Browser & app caches** | Chrome, Edge, Brave, Opera/Opera GX, Firefox, Discord, Telegram, Steam, VS Code, Spotify, pip/npm/NuGet/Yarn — **cache folders only**: cookies, passwords, history and sessions are never touched |
 | **Smart Clean** | Pre-selects only safe categories and always shows the full list before anything is deleted |
+| **Quarantine & undo** | Cleaned junk is first moved to a quarantine folder (same drive, instant) and kept for 7 days — restore it with one click; restoring never overwrites existing files |
 | **Per-file control** | Open *Details* and uncheck individual files you want to keep |
 | **Disk analyzer** | Folder tree sorted by size with share bars and the biggest files in each folder (read-only) |
 | **Large files** | Finds files over 100 MB … 10 GB; deletion requires a separate confirmation with a checkbox |
@@ -81,6 +82,7 @@ flowchart LR
 - **Fresh temp files** (younger than 24 h by default) are never touched — installers may be using them — and no other category can pick them up either.
 - **Locked, access-denied and too-long paths** are skipped and reported; one failure never stops the operation.
 - **Recycle Bin** is emptied via `SHEmptyRecycleBinW`; `Windows.old` and WinSxS are handled by Windows' own tools, not by deleting files.
+- **Quarantine:** junk clean-ups are reversible for 7 days by default; the quarantine folder itself is a protected zone that scanners never see.
 - **Large files and duplicates** go to the Recycle Bin by default.
 - **Privacy:** no telemetry, no network access, no accounts. Logs and history stay on your PC.
 
@@ -110,7 +112,7 @@ build.bat                &:: tests + PyInstaller -> dist\DiskCleaner.exe
 
 | Layer | What it covers |
 |---|---|
-| **Unit tests** — `tests/`, 126 | safety policy, path traversal, symlink/junction escapes, files changed after scan, scanner rules, cleaner, duplicates, analyzer, Windows tools (mocked), history, Winapp2 import |
+| **Unit tests** — `tests/`, 137 | safety policy, path traversal, symlink/junction escapes, files changed after scan, scanner rules, cleaner, duplicates, analyzer, Windows tools (mocked), history, Winapp2 import |
 | **GUI self-test** — `--selftest` | opens every page in both themes, runs real **read-only** scans, checks UI invariants, saves screenshots; all delete functions are blocked |
 | **CI** — GitHub Actions, `windows-latest` | unit tests → GUI self-test (offscreen) → build `DiskCleaner.exe` → artifacts; a `v*` tag publishes a release |
 
@@ -122,9 +124,9 @@ Destructive tests run only inside temporary folders — never on real system dir
 app/
   core/      safety · categories · scanner · cleaner · recycle_bin
              disk_analyzer · space_analyzer · duplicate_finder
-             system_cleanup · processes · history · winapp2
+             system_cleanup · processes · history · winapp2 · quarantine
   ui/        main_window · dashboard · cleaner · analyzer · large_files
-             duplicates · history · settings · widgets · workers · theme
+             duplicates · history · quarantine · settings · widgets · workers · theme
   models/    file_item · scan_result
   utils/     winpaths · permissions · settings_store · i18n · logger · paths
 tests/       unit tests

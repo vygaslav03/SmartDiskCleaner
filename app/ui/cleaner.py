@@ -599,6 +599,11 @@ class CleanerPage(QWidget):
         notes = sorted({tr(c.category.note) for c in selected if c.category.note})
         if any(c.category.kind == KIND_SYSTEM for c in selected):
             notes.insert(0, tr("confirm.system_tools"))
+        if any(c.category.kind == KIND_FILES for c in selected):
+            if self.settings.quarantine_enabled:
+                notes.insert(0, tr("confirm.quarantine_on", days=self.settings.quarantine_days))
+            else:
+                notes.insert(0, tr("confirm.quarantine_off"))
         title = tr("btn.smart_clean") if smart else tr("confirm.title")
         dlg = ConfirmDeleteDialog(
             title,
@@ -620,11 +625,17 @@ class CleanerPage(QWidget):
         self.progress.setVisible(True)
         self.status.setText(tr("clean.cleaning_start"))
         self._cleaning_ids = [c.category.id for c in selected]
+        quarantine = None
+        if self.settings.quarantine_enabled:
+            from app.core.quarantine import get_quarantine
+
+            quarantine = get_quarantine().new_session(self._cleaning_ids)
         self._task = Task(
             self,
             cleaner.clean_junk,
             self.result,
             [c.category.id for c in selected],
+            quarantine=quarantine,
             on_progress=self._on_clean_progress,
             on_finished=self._on_clean_finished,
             on_failed=self._on_task_failed,
@@ -718,6 +729,13 @@ class CleanerPage(QWidget):
         box.setIcon(QMessageBox.Icon.Information)
         box.setWindowTitle(tr("clean.done_title"))
         text = tr("clean.done_title") + "\n\n" + tr("clean.freed", size=format_size(report.freed_bytes))
+        if report.quarantined_files:
+            text += "\n" + tr(
+                "clean.quarantined",
+                count=report.quarantined_files,
+                size=format_size(report.quarantined_bytes),
+                days=self.settings.quarantine_days,
+            )
         text += "\n" + tr("clean.deleted_files", count=report.deleted_files)
         if report.failed_count:
             text += "\n" + tr("clean.failed_files", count=report.failed_count)

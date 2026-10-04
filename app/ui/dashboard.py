@@ -202,8 +202,11 @@ class DashboardPage(QWidget):
             )
             self.last_clean_label.setVisible(True)
 
-    def on_cleaned(self, freed: int) -> None:
-        self.last_clean_label.setText(tr("dash.last_freed", size=format_size(freed)))
+    def on_cleaned(self, freed: int, quarantined: int = 0) -> None:
+        text = tr("dash.last_freed", size=format_size(freed))
+        if quarantined:
+            text += " • " + tr("dash.in_quarantine", size=format_size(quarantined))
+        self.last_clean_label.setText(text)
         self.last_clean_label.setVisible(True)
         self.refresh_disk_info()
 

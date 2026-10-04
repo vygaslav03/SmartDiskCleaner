@@ -32,11 +32,12 @@ from app.ui.dashboard import DashboardPage
 from app.ui.duplicates import DuplicatesPage
 from app.ui.history import HistoryPage
 from app.ui.large_files import LargeFilesPage
+from app.ui.quarantine import QuarantinePage
 from app.ui.settings import SettingsPage
 
 log = get_logger("ui.main")
 
-PAGE_DASHBOARD, PAGE_CLEANER, PAGE_ANALYZER, PAGE_LARGE, PAGE_DUPLICATES, PAGE_HISTORY, PAGE_SETTINGS = range(7)
+PAGE_DASHBOARD, PAGE_CLEANER, PAGE_ANALYZER, PAGE_LARGE, PAGE_DUPLICATES, PAGE_HISTORY, PAGE_QUARANTINE, PAGE_SETTINGS = range(8)
 
 
 class MainWindow(QMainWindow):
@@ -69,7 +70,7 @@ class MainWindow(QMainWindow):
 
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
-        for idx, key in enumerate(("nav.dashboard", "nav.cleaner", "nav.analyzer", "nav.large", "nav.duplicates", "nav.history", "nav.settings")):
+        for idx, key in enumerate(("nav.dashboard", "nav.cleaner", "nav.analyzer", "nav.large", "nav.duplicates", "nav.history", "nav.quarantine", "nav.settings")):
             btn = QPushButton(tr(key))
             btn.setObjectName("NavButton")
             btn.setCheckable(True)
@@ -103,8 +104,9 @@ class MainWindow(QMainWindow):
         self.large = LargeFilesPage(settings)
         self.duplicates = DuplicatesPage(settings)
         self.history = HistoryPage()
+        self.quarantine = QuarantinePage(settings)
         self.settings_page = SettingsPage(settings)
-        for page in (self.dashboard, self.cleaner, self.analyzer, self.large, self.duplicates, self.history, self.settings_page):
+        for page in (self.dashboard, self.cleaner, self.analyzer, self.large, self.duplicates, self.history, self.quarantine, self.settings_page):
             self.stack.addWidget(page)
         layout.addWidget(self.stack, 1)
 
@@ -119,8 +121,12 @@ class MainWindow(QMainWindow):
         self.dashboard.drive_changed.connect(self._on_drive_changed)
         self.cleaner.scan_started.connect(lambda: self.dashboard.set_busy(True))
         self.cleaner.scan_finished.connect(self._on_scan_finished)
-        self.cleaner.clean_finished.connect(lambda r: self.dashboard.on_cleaned(r.freed_bytes))
+        self.cleaner.clean_finished.connect(
+            lambda r: self.dashboard.on_cleaned(r.freed_bytes, r.quarantined_bytes)
+        )
         self.cleaner.clean_finished.connect(lambda _r: self.history.refresh())
+        self.cleaner.clean_finished.connect(lambda _r: self.quarantine.refresh())
+        self.quarantine.space_freed.connect(lambda freed: self.dashboard.refresh_disk_info())
         self.large.files_deleted.connect(lambda _r: self.history.refresh())
         self.duplicates.files_deleted.connect(lambda _r: self.history.refresh())
         self.cleaner.restart_requested.connect(self.request_elevation)
@@ -162,7 +168,7 @@ class MainWindow(QMainWindow):
 
     def _on_settings_changed(self, settings: Settings) -> None:
         self.settings = settings
-        for page in (self.cleaner, self.large, self.duplicates):
+        for page in (self.cleaner, self.large, self.duplicates, self.quarantine):
             page.update_settings(settings)
         app = QApplication.instance()
         if app is not None:
@@ -171,7 +177,8 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------ elevation
     def _any_busy(self) -> bool:
-        return self.cleaner.busy or self.analyzer.busy or self.large.busy or self.duplicates.busy
+        return (self.cleaner.busy or self.analyzer.busy or self.large.busy or self.duplicates.busy
+                or self.quarantine.busy)
 
     def request_elevation(self) -> None:
         if self._any_busy():
@@ -205,7 +212,7 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
-        for page in (self.cleaner, self.analyzer, self.large, self.duplicates):
+        for page in (self.cleaner, self.analyzer, self.large, self.duplicates, self.quarantine):
             page.shutdown()
         log.info("Приложение закрыто")
         event.accept()

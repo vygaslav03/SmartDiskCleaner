@@ -73,6 +73,11 @@ def run_selftest() -> int:
     from app.core import history as core_history
 
     core_history.set_history(core_history.HistoryStore(out / "_sandbox_history.json"))
+    # Карантин самопроверки — тоже в песочнице, настоящий карантин пользователя не трогаем.
+    from app.core import quarantine as core_q
+
+    shutil.rmtree(out / "_sandbox_quarantine", ignore_errors=True)
+    core_q.set_quarantine(core_q.QuarantineStore(out / "_sandbox_quarantine"))
     ui_set.save_settings = lambda *_a, **_k: True  # type: ignore[assignment]
 
     def _box(kind):
@@ -189,7 +194,7 @@ def _run_steps(app, out: Path, sandbox: Path, settings, theme, set_language) -> 
     win.show()
     _wait(app, lambda: False, 0.5)
 
-    names = ["dashboard", "cleaner", "analyzer", "large", "duplicates", "history", "settings"]
+    names = ["dashboard", "cleaner", "analyzer", "large", "duplicates", "history", "quarantine", "settings"]
     for i, n in enumerate(names):
         _step(f"open page {n}", lambda i=i: win.go_to(i))
         _shot(app, win, out, f"dark_{i}_{n}_empty")
@@ -365,6 +370,29 @@ def _run_steps(app, out: Path, sandbox: Path, settings, theme, set_language) -> 
             raise AssertionError("история не отображается")
 
     _step("history page", history_page)
+
+    def quarantine_roundtrip():
+        from app.core.quarantine import get_quarantine
+
+        victim = sandbox / "qtest" / "cache.bin"
+        victim.parent.mkdir(parents=True, exist_ok=True)
+        victim.write_bytes(b"x" * 4096)
+        writer = get_quarantine().new_session(["chrome"])
+        if writer.move(str(victim), "chrome") is not None or victim.exists():
+            raise AssertionError("файл не перенесён в карантин")
+        writer.save()
+        win.go_to(6)
+        win.quarantine.refresh()
+        if win.quarantine.tree.topLevelItemCount() != 1:
+            raise AssertionError("сессия карантина не отображается")
+        _shot(app, win, out, "dark_6_quarantine")
+        session = get_quarantine().sessions()[0]
+        rep = get_quarantine().restore(session)
+        if rep.restored != 1 or not victim.exists():
+            raise AssertionError("восстановление из карантина не сработало")
+        _log("     quarantine: move + restore OK")
+
+    _step("quarantine roundtrip", quarantine_roundtrip)
     _shot(app, win, out, "dark_5_history")
 
     # --- анализ места: сначала песочница (с проверкой сумм), затем весь системный диск

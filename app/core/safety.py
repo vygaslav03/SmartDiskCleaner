@@ -180,6 +180,16 @@ class SafetyPolicy:
                 out.append(os.path.join(drive, name))
         return out
 
+    @staticmethod
+    def _app_private_dirs() -> list[str]:
+        """Собственные папки программы (карантин), которые сканеры не должны видеть."""
+        try:
+            from app.utils.paths import quarantine_dir
+
+            return [str(quarantine_dir())]
+        except Exception:  # noqa: BLE001
+            return []
+
     @classmethod
     def for_junk(
         cls, allow_program_files: bool = False, exclusions: Sequence[str] = ()
@@ -190,6 +200,7 @@ class SafetyPolicy:
             *winpaths.user_data_folders().values(),
             *winpaths.onedrive_roots(),
             *cls._per_drive_system_dirs(),
+            *cls._app_private_dirs(),
             *exclusions,
         ]
         if windows:
@@ -254,6 +265,7 @@ class SafetyPolicy:
             kf("LocalAppData"),
             kf("RoamingAppData"),
             *cls._per_drive_system_dirs(),
+            *cls._app_private_dirs(),
             *exclusions,
         ]
         program_files = [kf("ProgramFiles"), kf("ProgramFilesX86")]

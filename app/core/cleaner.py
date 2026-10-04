@@ -64,6 +64,10 @@ class CleanReport:
     recycle_emptied: bool = False
     tools_done: list[str] = field(default_factory=list)
     tool_details: dict[str, str] = field(default_factory=dict)
+    # Карантин: файлы перенесены (место освободится при очистке карантина).
+    quarantined_files: int = 0
+    quarantined_bytes: int = 0
+    quarantine_session: str = ""
 
     @property
     def failed_count(self) -> int:
@@ -164,7 +168,9 @@ class Cleaner:
         category_ids: Iterable[str],
         progress_cb=None,
         cancel_event: threading.Event | None = None,
+        quarantine=None,
     ) -> CleanReport:
+        """quarantine — SessionWriter: файлы переносятся в карантин вместо удаления."""
         cancel = cancel_event or threading.Event()
         wanted = set(category_ids)
         targets = [c for c in scan_result.categories if c.category.id in wanted]
@@ -238,11 +244,21 @@ class Cleaner:
                     break
                 processed += 1
                 reason = self.policy.check_before_delete(item, cres.rules)
+                moved_to_quarantine = False
                 if reason is None:
-                    reason = self._remove(item.path)
+                    if quarantine is not None:
+                        before = len(quarantine.entries)
+                        reason = quarantine.move(item.path, cat.id)
+                        moved_to_quarantine = reason is None and len(quarantine.entries) > before
+                    else:
+                        reason = self._remove(item.path)
                 if reason is None:
                     report.deleted_files += 1
-                    report.freed_bytes += item.size
+                    if moved_to_quarantine:
+                        report.quarantined_files += 1
+                        report.quarantined_bytes += item.size
+                    else:
+                        report.freed_bytes += item.size
                     report.deleted_paths.add(item.path)
                     touched_dirs.add(os.path.dirname(item.path))
                 elif reason == R_NOT_FOUND:
@@ -251,9 +267,18 @@ class Cleaner:
                     report.failed.append((item.path, reason))
                 emit(cat.id)
             self._remove_empty_dirs(touched_dirs, cres.rules)
+            if quarantine is not None:
+                try:
+                    quarantine.save()  # manifest после каждой категории — переживёт сбой
+                except OSError as exc:
+                    log.error("Не удалось сохранить manifest карантина: %s", exc)
             if report.cancelled:
                 break
 
+        if quarantine is not None and quarantine.entries:
+            report.quarantine_session = quarantine.session_id
+            log.info("В карантин перенесено %d файлов (%d байт), сессия %s",
+                     report.quarantined_files, report.quarantined_bytes, quarantine.session_id)
         emit("", force=True)
         log.info(
             "Удаление завершено%s: удалено %d, освобождено %d байт, ошибок %d, уже отсутствовали %d",

@@ -88,6 +88,9 @@ class HistoryPage(QWidget):
             details = ", ".join(cat_name(c) for c in e.categories)
             if e.mode:
                 details = tr(f"set.mode.{e.mode}") if not details else f"{details} • {tr(f'set.mode.{e.mode}')}"
+            if e.quarantined:
+                q_text = tr("hist.quarantined", size=format_size(e.quarantined))
+                details = f"{q_text} • {details}" if details else q_text
             if e.cancelled:
                 details = (details + " • " if details else "") + tr("hist.cancelled")
             item = QTreeWidgetItem(

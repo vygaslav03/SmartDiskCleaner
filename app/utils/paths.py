@@ -66,5 +66,19 @@ def data_dir() -> Path:
     return _DATA_DIR
 
 
+def quarantine_dir() -> Path:
+    """Папка карантина: %LOCALAPPDATA%\\DiskCleaner\\Quarantine (тот же диск, что и мусор)."""
+    local = os.environ.get("LOCALAPPDATA")
+    try:
+        from app.utils.winpaths import known_folder
+
+        local = known_folder("LocalAppData") or local
+    except Exception:  # noqa: BLE001
+        pass
+    if local:
+        return Path(local) / __app_name__ / "Quarantine"
+    return data_dir() / "quarantine"
+
+
 def logs_dir() -> Path:
     return data_dir() / "logs"

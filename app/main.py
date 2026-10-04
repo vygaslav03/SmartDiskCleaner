@@ -74,6 +74,12 @@ def main() -> int:
         set_extra_categories(winapp2.load_imported().categories)
     except Exception:  # noqa: BLE001 - повреждённый импорт не должен мешать запуску
         log.exception("Не удалось загрузить winapp2.ini")
+    try:
+        from app.core.quarantine import get_quarantine
+
+        get_quarantine().purge_expired(settings.quarantine_days)
+    except Exception:  # noqa: BLE001 - карантин не должен мешать запуску
+        log.exception("Не удалось очистить просроченный карантин")
 
     from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication

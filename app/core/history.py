@@ -35,6 +35,7 @@ class HistoryEntry:
     categories: list[str] = field(default_factory=list)
     mode: str = ""  # для пользовательских файлов: recycle / permanent
     cancelled: bool = False
+    quarantined: int = 0  # байт перенесено в карантин (ещё не освобождено)
 
     @classmethod
     def from_dict(cls, raw: dict) -> "HistoryEntry | None":
@@ -48,6 +49,7 @@ class HistoryEntry:
             entry.freed = int(entry.freed)
             entry.failed = int(entry.failed)
             entry.missing = int(entry.missing)
+            entry.quarantined = int(entry.quarantined)
             entry.categories = [str(c) for c in entry.categories] if isinstance(entry.categories, list) else []
             return entry
         except (TypeError, ValueError):
@@ -119,6 +121,7 @@ def make_entry(kind: str, report, drive: str = "", categories=(), mode: str = ""
         categories=list(categories),
         mode=mode,
         cancelled=bool(report.cancelled),
+        quarantined=int(getattr(report, "quarantined_bytes", 0)),
     )
 
 

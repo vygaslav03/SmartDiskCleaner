@@ -36,6 +36,9 @@ class Settings:
     allow_program_files: bool = False
     # Большие файлы и дубликаты: в корзину (по умолчанию) или навсегда.
     user_files_delete_mode: str = "recycle"
+    # Карантин для очистки мусора: файлы хранятся N дней и могут быть восстановлены.
+    quarantine_enabled: bool = True
+    quarantine_days: int = 7
 
     def validate(self) -> "Settings":
         if self.language not in LANGUAGES:
@@ -52,6 +55,8 @@ class Settings:
         self.duplicate_folders = _str_list(self.duplicate_folders)
         self.exclusions = _str_list(self.exclusions)
         self.allow_program_files = bool(self.allow_program_files)
+        self.quarantine_enabled = bool(self.quarantine_enabled)
+        self.quarantine_days = _clamp_int(self.quarantine_days, 1, 90, 7)
         return self
 
 
