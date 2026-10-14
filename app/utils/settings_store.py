@@ -15,6 +15,7 @@ log = get_logger("settings")
 LANGUAGES = ("ru", "uk", "en")
 THEMES = ("system", "dark", "light")
 DELETE_MODES = ("recycle", "permanent")
+MEMORY_MODES = ("monitor", "recommend", "manual")
 
 
 @dataclass
@@ -41,6 +42,10 @@ class Settings:
     quarantine_days: int = 7
     # Анализ диска: читать таблицу NTFS (MFT) напрямую, если есть права администратора.
     fast_analysis: bool = True
+    # Память: режим страницы (monitor — только статистика, recommend — советы без изменений,
+    # manual — действия после подтверждения) и фоновый мониторинг (для поиска утечек).
+    memory_mode: str = "monitor"
+    memory_background: bool = True
 
     def validate(self) -> "Settings":
         if self.language not in LANGUAGES:
@@ -60,6 +65,9 @@ class Settings:
         self.quarantine_enabled = bool(self.quarantine_enabled)
         self.quarantine_days = _clamp_int(self.quarantine_days, 1, 90, 7)
         self.fast_analysis = bool(self.fast_analysis)
+        if self.memory_mode not in MEMORY_MODES:
+            self.memory_mode = "monitor"
+        self.memory_background = bool(self.memory_background)
         return self
 
 

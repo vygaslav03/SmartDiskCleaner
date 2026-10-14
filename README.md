@@ -13,7 +13,7 @@ It never deletes anything without your explicit confirmation, and every file pas
 ![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6%20(Qt%206)-41CD52?logo=qt&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?logo=windows&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-159%20unit%20%2B%20GUI%20self--test-brightgreen)
+![Tests](https://img.shields.io/badge/tests-217%20unit%20%2B%20GUI%20self--test-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 [**Download .exe**](https://github.com/vygaslav03/SmartDiskCleaner/releases/latest) ·
@@ -43,6 +43,7 @@ It never deletes anything without your explicit confirmation, and every file pas
 | **Windows tools** | `Windows.old` via built-in Disk Cleanup and component store cleanup via `DISM /StartComponentCleanup` (admin only, never auto-selected) |
 | **Running apps check** | Warns if Chrome, Discord, Steam etc. are open — never kills processes for you |
 | **Winapp2.ini import** | Optional: hundreds of community rules, filtered through the same safety checks; registry rules are ignored |
+| **Memory (RAM)** | Real-time RAM monitor built on Windows APIs (no admin needed): in use / modified / standby cache / free, commit charge vs limit, disk page reads, per-process private bytes and working set, usage history chart, spike and leak detection. Three modes — *Monitoring*, *Recommendations* (no changes), *Manual optimization* (only the actions you tick, after confirmation). Says plainly when no action is needed; never kills processes or "cleans" RAM on its own |
 | **History** | Local log of every clean-up (no file paths stored) with total space freed |
 | **UI** | Dark / light / system theme, Russian / Ukrainian / English; all heavy work runs in background threads |
 
@@ -112,7 +113,7 @@ build.bat                &:: tests + PyInstaller -> dist\DiskCleaner.exe
 
 | Layer | What it covers |
 |---|---|
-| **Unit tests** — `tests/`, 159 | safety policy, path traversal, symlink/junction escapes, files changed after scan, scanner rules, cleaner, duplicates, analyzer, Windows tools (mocked), history, Winapp2 import, quarantine, treemap layout, NTFS MFT parser (synthetic disk images) |
+| **Unit tests** — `tests/`, 217 | safety policy, path traversal, symlink/junction escapes, files changed after scan, scanner rules, cleaner, duplicates, analyzer, Windows tools (mocked), history, Winapp2 import, quarantine, treemap layout, NTFS MFT parser (synthetic disk images), memory analysis (synthetic series), startup flags & undo, action guards, monitor |
 | **GUI self-test** — `--selftest` | opens every page in both themes, runs real **read-only** scans, checks UI invariants, saves screenshots; all delete functions are blocked |
 | **CI** — GitHub Actions, `windows-latest` | unit tests → GUI self-test (offscreen) → build `DiskCleaner.exe` → artifacts; a `v*` tag publishes a release |
 
@@ -122,16 +123,26 @@ Destructive tests run only inside temporary folders — never on real system dir
 
 ```
 app/
+  memory/    models · winapi · collector · history · analysis · startup · actions · journal · monitor · report
   core/      safety · categories · scanner · cleaner · recycle_bin
              disk_analyzer · space_analyzer · duplicate_finder
              system_cleanup · processes · history · winapp2 · quarantine · treemap · mft_reader
   ui/        main_window · dashboard · cleaner · analyzer · large_files
              duplicates · history · quarantine · settings · treemap · widgets · workers · theme
+             memory · memory_widgets
   models/    file_item · scan_result
   utils/     winpaths · permissions · settings_store · i18n · logger · paths
 tests/       unit tests
 .github/     CI workflow
 ```
+
+## Memory module — what it does and doesn't do
+
+- **Diagnoses, doesn't "free RAM for show".** High "used" memory is normal: most of it is usually the standby cache, which Windows hands back instantly. A real problem is commit charge near its limit, sustained page reads from disk with little available memory, or a process whose private bytes grow steadily (leak). Otherwise the app says *no action needed*.
+- **Exact sources:** `GlobalMemoryStatusEx`, `GetPerformanceInfo`, PDH counters via English names (`PdhAddEnglishCounterW`, works on localized Windows), `NtQuerySystemInformation` for page files, psutil for processes.
+- **Actions** (manual mode only, each confirmed and logged with before/after): close a program gracefully (`WM_CLOSE`, it can ask to save), force terminate (double confirmation), trim one process's working set, disable a startup entry the same way Task Manager does (**undoable**), purge the low-priority standby list (admin, only offered when free memory is near zero). System/critical processes, other users' processes and reused PIDs are refused.
+- **Never:** registry tweaks, page-file changes (advice only), disabling services, Defender or Windows Update, automatic cleaning.
+- `DiskCleaner.exe --memory-report` writes `memory_report.txt` with all readings, consistency checks and the cost of data collection — use it to compare with Task Manager / RAMMap.
 
 ## Known limitations
 
@@ -139,6 +150,8 @@ tests/       unit tests
 - System categories (`C:\Windows\Temp`, Windows Update, DISM) need administrator rights.
 - Fast MFT analysis is used for whole NTFS drives and needs administrator rights; otherwise the analyzer walks folders (about 20–60 s for 500k files). Files written in the last few seconds may not be in the on-disk MFT yet.
 - The space freed by DISM is known only after it finishes.
+- Leak detection needs the app running for 10+ minutes (background monitoring is on by default; it costs well under 1% CPU). History lives in memory only and starts over on restart.
+- Private Working Set is measured on demand for one process (it's expensive to compute for all).
 
 ## License
 

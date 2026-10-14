@@ -137,6 +137,12 @@ class SettingsPage(QWidget):
         fa_hint.setObjectName("Muted")
         fa_hint.setWordWrap(True)
         safe.layout_.addWidget(fa_hint)
+        self.mem_background = QCheckBox(tr("set.memory_background"))
+        safe.layout_.addWidget(self.mem_background)
+        mb_hint = QLabel(tr("set.memory_background_hint"))
+        mb_hint.setObjectName("Muted")
+        mb_hint.setWordWrap(True)
+        safe.layout_.addWidget(mb_hint)
 
         safe.layout_.addWidget(self._section(tr("set.exclusions")))
         ex_hint = QLabel(tr("set.exclusions_hint"))
@@ -227,6 +233,7 @@ class SettingsPage(QWidget):
         self.q_enabled.setChecked(s.quarantine_enabled)
         self.q_days.setValue(s.quarantine_days)
         self.fast_analysis.setChecked(s.fast_analysis)
+        self.mem_background.setChecked(s.memory_background)
         self.q_days.setEnabled(s.quarantine_enabled)
         self.exclusions.clear()
         for e in s.exclusions:
@@ -331,6 +338,7 @@ class SettingsPage(QWidget):
         new.quarantine_enabled = self.q_enabled.isChecked()
         new.quarantine_days = self.q_days.value()
         new.fast_analysis = self.fast_analysis.isChecked()
+        new.memory_background = self.mem_background.isChecked()
         new.exclusions = [self.exclusions.item(i).text() for i in range(self.exclusions.count())]
         new.validate()
         if not save_settings(new):

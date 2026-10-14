@@ -149,6 +149,23 @@ def _stylesheet(c: dict[str, str]) -> str:
     QPushButton#DangerButton:hover {{ background-color: {c['danger_hover']}; }}
     QPushButton#DangerButton:disabled {{ background-color: {c['track']}; color: {c['muted']}; }}
 
+    QPushButton#SegButton {{
+        background-color: transparent; color: {c['muted']}; border: 1px solid {c['border']};
+        border-radius: 8px; padding: 6px 12px;
+    }}
+    QPushButton#SegButton:hover {{ color: {c['text']}; border-color: {c['accent']}; }}
+    QPushButton#SegButton:checked {{
+        background-color: {c['selection']}; color: {c['text']}; border-color: {c['accent']}; font-weight: 600;
+    }}
+    QTabWidget::pane {{ border: none; border-top: 1px solid {c['border']}; top: -1px; }}
+    QTabBar::tab {{
+        background: transparent; color: {c['muted']}; padding: 8px 16px; border: none;
+        border-bottom: 2px solid transparent; margin-right: 4px;
+    }}
+    QTabBar::tab:hover {{ color: {c['text']}; }}
+    QTabBar::tab:selected {{ color: {c['text']}; border-bottom: 2px solid {c['accent']}; font-weight: 600; }}
+    QListWidget::item {{ padding: 8px 6px; border-bottom: 1px solid {c['border']}; }}
+
     QProgressBar {{
         background-color: {c['track']}; border: none; border-radius: 5px;
         height: 10px; text-align: center; color: transparent;

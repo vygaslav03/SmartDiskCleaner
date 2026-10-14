@@ -48,6 +48,10 @@ def main() -> int:
         from app.selftest import run_selftest
 
         return run_selftest()
+    if "--memory-report" in sys.argv:
+        from app.memory.report import run_report
+
+        return run_report()
 
     from app import __app_name__, __version__
     from app.utils.i18n import set_language
