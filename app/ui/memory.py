@@ -165,7 +165,7 @@ class MemoryPage(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(28, 24, 28, 16)
         root.setSpacing(12)
-        header, _ = page_header(tr("mem.title"), tr("mem.subtitle"))
+        header, self.subtitle_label = page_header(tr("mem.title"), tr("mem.subtitle"))
         root.addWidget(header)
 
         # ---- режимы и кнопки
@@ -181,24 +181,26 @@ class MemoryPage(QWidget):
             bar.addWidget(b)
         self.mode_group.idClicked.connect(lambda i: self.set_mode(MODES[i]))
         bar.addStretch(1)
-        self.analyze_btn = QPushButton(tr("mem.btn.analyze"))
-        self.analyze_btn.setObjectName("Primary")
-        self.analyze_btn.clicked.connect(self.quick_analysis)
-        self.optimize_btn = QPushButton(tr("mem.btn.optimize"))
-        self.optimize_btn.clicked.connect(self.safe_optimization)
-        bar.addWidget(self.analyze_btn)
-        bar.addWidget(self.optimize_btn)
         root.addLayout(bar)
 
-        # ---- статус
+        # ---- статус + главные кнопки (в карточке статуса, чтобы панель режимов
+        # помещалась при минимальной ширине окна на всех языках)
         status = Card()
         row = QHBoxLayout()
         self.status_dot = QLabel()
         self.status_dot.setFixedSize(14, 14)
         self.status_title = QLabel(tr("mem.status.loading"))
         self.status_title.setObjectName("CardValue")
+        self.status_title.setWordWrap(True)
+        self.analyze_btn = QPushButton(tr("mem.btn.analyze"))
+        self.analyze_btn.setObjectName("Primary")
+        self.analyze_btn.clicked.connect(self.quick_analysis)
+        self.optimize_btn = QPushButton(tr("mem.btn.optimize"))
+        self.optimize_btn.clicked.connect(self.safe_optimization)
         row.addWidget(self.status_dot)
         row.addWidget(self.status_title, 1)
+        row.addWidget(self.analyze_btn)
+        row.addWidget(self.optimize_btn)
         status.layout_.addLayout(row)
         self.status_text = QLabel("")
         self.status_text.setWordWrap(True)
@@ -222,6 +224,8 @@ class MemoryPage(QWidget):
     def _build_overview(self) -> QWidget:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.overview_scroll = scroll
         inner = QWidget()
         lay = QVBoxLayout(inner)
         lay.setContentsMargins(0, 12, 6, 6)
@@ -236,15 +240,16 @@ class MemoryPage(QWidget):
 
         right = QVBoxLayout()
         right.setSpacing(12)
-        stats = QGridLayout()
-        stats.setHorizontalSpacing(12)
+        self.stats_grid = QGridLayout()
+        self.stats_grid.setHorizontalSpacing(12)
+        self.stats_grid.setVerticalSpacing(12)
         self.total_card = StatCard(tr("mem.total"))
         self.used_card = StatCard(tr("mem.used"))
         self.avail_card = StatCard(tr("mem.available"))
         self.commit_card = StatCard(tr("mem.commit"))
-        for i, c in enumerate((self.total_card, self.used_card, self.avail_card, self.commit_card)):
-            stats.addWidget(c, 0, i)
-        right.addLayout(stats)
+        self._stats_cols = 0
+        self._layout_stats(4)
+        right.addLayout(self.stats_grid)
         comp_card = Card()
         t = QLabel(tr("mem.composition"))
         t.setObjectName("CardTitle")
@@ -333,9 +338,13 @@ class MemoryPage(QWidget):
         t.setAlternatingRowColors(True)
         t.setSortingEnabled(not top)
         h = t.horizontalHeader()
-        h.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        # Имя процесса всегда читаемо: не уже 200 px. Числовые колонки — по содержимому,
+        # последняя растягивается; на узком окне появляется горизонтальная прокрутка.
+        h.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        t.setColumnWidth(0, 230)
         for i in range(1, len(cols)):
             h.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+        h.setStretchLastSection(True)
         t.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         t.customContextMenuRequested.connect(lambda pos, tbl=t: self._proc_menu(tbl, pos))
         return t
@@ -486,6 +495,25 @@ class MemoryPage(QWidget):
         lay.addLayout(row)
         return w
 
+    def _layout_stats(self, cols: int) -> None:
+        """4 карточки в ряд на широком окне, 2×2 — на узком (минимальная ширина окна)."""
+        if cols == self._stats_cols:
+            return
+        self._stats_cols = cols
+        cards = (self.total_card, self.used_card, self.avail_card, self.commit_card)
+        for c in cards:
+            self.stats_grid.removeWidget(c)
+        for i, c in enumerate(cards):
+            self.stats_grid.addWidget(c, i // cols, i % cols)
+
+    def resizeEvent(self, e) -> None:
+        super().resizeEvent(e)
+        self._layout_stats(4 if self.width() >= 1050 else 2)
+        # на низком окне (минимум 640 px) место важнее пояснения под заголовком
+        self.subtitle_label.setVisible(self.height() >= 700)
+        if self._state is not None:
+            self._fill_status(self._state)
+
     # ================================================================ modes
     @property
     def mode(self) -> str:
@@ -566,8 +594,10 @@ class MemoryPage(QWidget):
         self.status_dot.setStyleSheet(f"background-color: {color.name()}; border-radius: 7px;")
         self.status_title.setText(severity_title(a.severity))
         main = [f for f in a.findings if f.code not in ("no_fault_data",)]
-        lines = [finding_text(f.code, f.params) for f in main[:3]]
-        if any(f.code == "no_fault_data" for f in a.findings) and len(lines) < 3:
+        limit = 3 if self.height() >= 700 else 1  # на низком окне — только главный вывод
+        lines = [finding_text(f.code, f.params) for f in main[:limit]]
+        self.status_text.setToolTip("\n".join(finding_text(f.code, f.params) for f in a.findings))
+        if any(f.code == "no_fault_data" for f in a.findings) and len(lines) < limit:
             lines.append(finding_text("no_fault_data", {}))
         self.status_text.setText("\n".join(lines))
 

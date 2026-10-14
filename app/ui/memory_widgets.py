@@ -12,7 +12,7 @@ import math
 import time
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QFont, QMouseEvent, QPainter, QPainterPath, QPaintEvent, QPen
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QMouseEvent, QPainter, QPainterPath, QPaintEvent, QPen
 from PySide6.QtWidgets import QSizePolicy, QToolTip, QWidget
 
 from app.ui import theme
@@ -97,7 +97,34 @@ class CompositionBar(QWidget):
     def set_parts(self, parts: list[tuple[str, int, QColor, str]], total: int) -> None:
         self._parts = [p for p in parts if p[1] > 0]
         self._total = total
+        self._fit_height()
         self.update()
+
+    def _legend_items(self) -> list[tuple[str, float]]:
+        f = QFont(self.font())
+        f.setPointSizeF(9.5)
+        fm = QFontMetrics(f)
+        return [(f"{label}  {format_size(value, 1)}", 14 + fm.horizontalAdvance(f"{label}  {format_size(value, 1)}") + 22)
+                for label, value, _c, _t in self._parts]
+
+    def _legend_rows(self, width: float) -> int:
+        rows, x = 1, 0.0
+        for _text, item_w in self._legend_items():
+            if x + item_w > width and x > 0:
+                rows += 1
+                x = 0.0
+            x += item_w
+        return rows
+
+    def _fit_height(self) -> None:
+        """Высота = полоса + столько строк легенды, сколько нужно при текущей ширине."""
+        h = 30 + 20 * self._legend_rows(max(1, self.width())) + 4
+        if h != self.height():
+            self.setFixedHeight(h)
+
+    def resizeEvent(self, e) -> None:
+        super().resizeEvent(e)
+        self._fit_height()
 
     def _segments(self) -> list[tuple[QRectF, int]]:
         segs = []
@@ -125,10 +152,7 @@ class CompositionBar(QWidget):
         f = QFont(self.font())
         f.setPointSizeF(9.5)
         p.setFont(f)
-        fm = p.fontMetrics()
-        for label, value, color, _tip in self._parts:
-            text = f"{label}  {format_size(value, 1)}"
-            item_w = 14 + fm.horizontalAdvance(text) + 22
+        for (label, value, color, _tip), (text, item_w) in zip(self._parts, self._legend_items()):
             if x + item_w > self.width() and x > 0:
                 x = 0.0
                 y += 20
