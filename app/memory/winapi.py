@@ -13,6 +13,7 @@ from __future__ import annotations
 import ctypes
 import sys
 from ctypes import wintypes
+from dataclasses import dataclass
 from typing import Iterator
 
 from app.memory.models import PagefileInfo
@@ -70,12 +71,67 @@ class UNICODE_STRING(ctypes.Structure):
 class SYSTEM_PAGEFILE_INFORMATION(ctypes.Structure):
     # Размеры — в страницах.
     _fields_ = [
-        ("NextEntryOffset", wintypes.ULONG),
-        ("TotalSize", wintypes.ULONG),
-        ("TotalInUse", wintypes.ULONG),
-        ("PeakUsage", wintypes.ULONG),
+        ("NextEntryOffset", ctypes.c_uint32),
+        ("TotalSize", ctypes.c_uint32),
+        ("TotalInUse", ctypes.c_uint32),
+        ("PeakUsage", ctypes.c_uint32),
         ("PageFileName", UNICODE_STRING),
     ]
+
+
+class SYSTEM_PROCESS_INFORMATION(ctypes.Structure):
+    """Запись процесса (без массива потоков), x64. Типы фиксированной ширины (c_uint32),
+    чтобы раскладка была одинаковой на любой ОС и проверялась тестом: sizeof = 0x100."""
+
+    _fields_ = [
+        ("NextEntryOffset", ctypes.c_uint32),
+        ("NumberOfThreads", ctypes.c_uint32),
+        ("WorkingSetPrivateSize", ctypes.c_longlong),  # Private Working Set (Vista+)
+        ("HardFaultCount", ctypes.c_uint32),
+        ("NumberOfThreadsHighWatermark", ctypes.c_uint32),
+        ("CycleTime", ctypes.c_ulonglong),
+        ("CreateTime", ctypes.c_longlong),  # FILETIME, 100 нс с 1601 г.
+        ("UserTime", ctypes.c_longlong),  # 100 нс
+        ("KernelTime", ctypes.c_longlong),
+        ("ImageName", UNICODE_STRING),
+        ("BasePriority", ctypes.c_int32),
+        ("UniqueProcessId", ctypes.c_void_p),
+        ("InheritedFromUniqueProcessId", ctypes.c_void_p),
+        ("HandleCount", ctypes.c_uint32),
+        ("SessionId", ctypes.c_uint32),
+        ("UniqueProcessKey", ctypes.c_size_t),
+        ("PeakVirtualSize", ctypes.c_size_t),
+        ("VirtualSize", ctypes.c_size_t),
+        ("PageFaultCount", ctypes.c_uint32),
+        ("PeakWorkingSetSize", ctypes.c_size_t),
+        ("WorkingSetSize", ctypes.c_size_t),
+        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+        ("PagefileUsage", ctypes.c_size_t),  # = Private Bytes (commit процесса)
+        ("PeakPagefileUsage", ctypes.c_size_t),
+        ("PrivatePageCount", ctypes.c_size_t),
+        ("ReadOperationCount", ctypes.c_longlong),
+        ("WriteOperationCount", ctypes.c_longlong),
+        ("OtherOperationCount", ctypes.c_longlong),
+        ("ReadTransferCount", ctypes.c_longlong),
+        ("WriteTransferCount", ctypes.c_longlong),
+        ("OtherTransferCount", ctypes.c_longlong),
+    ]
+
+
+@dataclass(slots=True)
+class RawProcess:
+    pid: int
+    name: str
+    create_time: float  # Unix time, как в psutil
+    working_set: int
+    private_bytes: int
+    private_ws: int
+    handles: int
+    cpu_time: float
+    session_id: int
 
 
 class PDH_FMT_COUNTERVALUE(ctypes.Structure):
@@ -87,7 +143,9 @@ PDH_FMT_DOUBLE = 0x00000200
 PDH_FMT_NOCAP100 = 0x00008000
 ERROR_SUCCESS = 0
 STATUS_INFO_LENGTH_MISMATCH = 0xC0000004
+SystemProcessInformation = 5
 SystemPageFileInformation = 18
+EPOCH_DIFF_SEC = 11644473600  # 1601-01-01 -> 1970-01-01
 SystemMemoryListInformation = 80
 MemoryPurgeStandbyList = 4
 MemoryPurgeLowPriorityStandbyList = 5
@@ -164,7 +222,7 @@ def pagefiles() -> list[PagefileInfo] | None:
             entry = SYSTEM_PAGEFILE_INFORMATION.from_address(base + offset)
             name = ""
             if entry.PageFileName.Buffer and entry.PageFileName.Length:
-                name = ctypes.wstring_at(entry.PageFileName.Buffer, entry.PageFileName.Length // 2)
+                name = _utf16(entry.PageFileName.Buffer, entry.PageFileName.Length)
             result.append(PagefileInfo(
                 name=_clean_nt_path(name),
                 total=entry.TotalSize * page,
@@ -176,6 +234,80 @@ def pagefiles() -> list[PagefileInfo] | None:
             offset += entry.NextEntryOffset
         return result
     return None
+
+
+def _utf16(address: int, length_bytes: int) -> str:
+    """UNICODE_STRING -> str. Явный UTF-16LE (wstring_at зависит от размера wchar_t на ОС)."""
+    return ctypes.string_at(address, length_bytes).decode("utf-16-le", errors="replace")
+
+
+def _query_system_information(info_class: int, initial: int) -> tuple[ctypes.Array, int] | None:
+    """NtQuerySystemInformation с увеличением буфера. (буфер, длина данных) или None."""
+    ntdll = _dll("ntdll")
+    ntdll.NtQuerySystemInformation.argtypes = [wintypes.ULONG, ctypes.c_void_p, wintypes.ULONG,
+                                               ctypes.POINTER(wintypes.ULONG)]
+    ntdll.NtQuerySystemInformation.restype = ctypes.c_long
+    size = initial
+    for _ in range(8):
+        buf = ctypes.create_string_buffer(size)
+        ret_len = wintypes.ULONG(0)
+        status = ntdll.NtQuerySystemInformation(info_class, buf, size, ctypes.byref(ret_len)) & 0xFFFFFFFF
+        if status == STATUS_INFO_LENGTH_MISMATCH:
+            # между вызовами могут появиться новые процессы — берём с запасом
+            size = max(size * 2, ret_len.value + 64 * 1024)
+            continue
+        if status != 0:
+            log.warning("NtQuerySystemInformation(%d): 0x%08X", info_class, status)
+            return None
+        return buf, ret_len.value
+    return None
+
+
+def parse_process_buffer(buf, length: int) -> list[RawProcess]:
+    """Разбор цепочки SYSTEM_PROCESS_INFORMATION (вынесено отдельно для тестов)."""
+    result: list[RawProcess] = []
+    base = ctypes.addressof(buf)
+    header = ctypes.sizeof(SYSTEM_PROCESS_INFORMATION)
+    offset = 0
+    while offset + header <= length:
+        e = SYSTEM_PROCESS_INFORMATION.from_address(base + offset)
+        pid = int(e.UniqueProcessId or 0)
+        name = ""
+        if e.ImageName.Buffer and e.ImageName.Length:
+            name = _utf16(e.ImageName.Buffer, e.ImageName.Length)
+        if not name:
+            name = "System Idle Process" if pid == 0 else f"pid {pid}"
+        ctime = e.CreateTime / 1e7 - EPOCH_DIFF_SEC if e.CreateTime > 0 else 0.0
+        result.append(RawProcess(
+            pid=pid, name=name, create_time=ctime,
+            working_set=int(e.WorkingSetSize), private_bytes=int(e.PagefileUsage),
+            private_ws=int(e.WorkingSetPrivateSize), handles=int(e.HandleCount),
+            cpu_time=(e.UserTime + e.KernelTime) / 1e7, session_id=int(e.SessionId),
+        ))
+        if not e.NextEntryOffset:
+            break
+        offset += e.NextEntryOffset
+    return result
+
+
+_PROC_BUF_SIZE = 512 * 1024
+
+
+def process_snapshot() -> list[RawProcess] | None:
+    """Все процессы ОДНИМ системным вызовом — без открытия каждого процесса.
+
+    Работает без прав администратора и для чужих/системных процессов (так же
+    получает данные Диспетчер задач). None — вызов не удался, нужен запасной путь.
+    """
+    global _PROC_BUF_SIZE
+    if not IS_WINDOWS:
+        return None
+    res = _query_system_information(SystemProcessInformation, _PROC_BUF_SIZE)
+    if res is None:
+        return None
+    buf, length = res
+    _PROC_BUF_SIZE = max(_PROC_BUF_SIZE, len(buf))  # следующий вызов — сразу нужного размера
+    return parse_process_buffer(buf, length or len(buf))
 
 
 def _clean_nt_path(name: str) -> str:

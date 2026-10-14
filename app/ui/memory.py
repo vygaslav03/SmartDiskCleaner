@@ -710,7 +710,8 @@ class MemoryPage(QWidget):
         menu.exec(table.viewport().mapToGlobal(pos))
 
     def _show_private_ws(self, p) -> None:
-        uss = private_working_set(p.pid)
+        # на Windows уже известен из общего снимка процессов; иначе — посчитать (дорого)
+        uss = p.private_ws if p.private_ws is not None else private_working_set(p.pid)
         QMessageBox.information(self, p.name, tr("mem.private_ws_value", name=p.name,
                                                  value="—" if uss is None else format_size(uss)))
 

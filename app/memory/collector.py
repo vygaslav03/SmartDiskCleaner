@@ -157,8 +157,6 @@ class ProcessCollector:
         self._services_at = 0.0
 
     def scan(self) -> list[ProcessMemory]:
-        import psutil
-
         now = time.monotonic()
         if now - self._services_at > 60:
             try:
@@ -167,8 +165,47 @@ class ProcessCollector:
                 self._services = {}
             self._services_at = now
         windows = winapi.pids_with_visible_windows()
+        raw = winapi.process_snapshot() if winapi.IS_WINDOWS else None
+        if raw is not None:
+            result = self._from_snapshot(raw, windows)
+        else:
+            result = self._from_psutil(windows)
+        alive = {p.key for p in result}
+        # кэш не растёт бесконечно
+        for key in list(self._static):
+            if key not in alive:
+                del self._static[key]
+        return result
+
+    def _from_snapshot(self, raw: list, windows: set[int]) -> list[ProcessMemory]:
+        """Windows: все цифры одним вызовом NtQuerySystemInformation. psutil открывает
+        процесс только один раз за его жизнь — чтобы узнать владельца и путь."""
+        import psutil
+
         result: list[ProcessMemory] = []
-        alive: set[tuple[int, float]] = set()
+        for r in raw:
+            key = (r.pid, round(r.create_time, 3))
+            static = self._static.get(key)
+            if static is None:
+                try:
+                    static = self._static_info(psutil.Process(r.pid), r.name)
+                except psutil.Error:
+                    static = (False, "", True)
+                self._static[key] = static
+            owned, exe, protected = static
+            result.append(ProcessMemory(
+                pid=r.pid, name=r.name, create_time=r.create_time,
+                working_set=r.working_set, private_bytes=r.private_bytes, private_ws=r.private_ws,
+                handles=r.handles, cpu_time=r.cpu_time, owned=owned, has_window=r.pid in windows,
+                protected=protected, exe=exe, services=self._services.get(r.pid, ()),
+            ))
+        return result
+
+    def _from_psutil(self, windows: set[int]) -> list[ProcessMemory]:
+        """Запасной путь (не Windows или сбой NtQuerySystemInformation)."""
+        import psutil
+
+        result: list[ProcessMemory] = []
         for proc in psutil.process_iter():
             try:
                 with proc.oneshot():
@@ -178,15 +215,11 @@ class ProcessCollector:
                     handles = _safe(lambda: proc.num_handles()) if winapi.IS_WINDOWS else None
                     cpu = _safe(lambda: sum(proc.cpu_times()[:2]))
                     key = (proc.pid, round(create_time, 3))
-                    alive.add(key)
                     static = self._static.get(key)
                     if static is None:
                         static = self._static_info(proc, name)
                         self._static[key] = static
-            except (psutil.NoSuchProcess, psutil.ZombieProcess):
-                continue
-            except psutil.AccessDenied:
-                # PID 0 / защищённые процессы: показываем, но без цифр
+            except (psutil.NoSuchProcess, psutil.ZombieProcess, psutil.AccessDenied):
                 continue
             except Exception:  # noqa: BLE001
                 log.debug("Процесс %s пропущен", proc.pid, exc_info=True)
@@ -207,13 +240,9 @@ class ProcessCollector:
                 exe=exe,
                 services=self._services.get(proc.pid, ()),
             ))
-        # кэш не растёт бесконечно
-        for key in list(self._static):
-            if key not in alive:
-                del self._static[key]
         return result
 
-    def _static_info(self, proc, name: str) -> tuple[bool, str, bool]:
+    def _static_info(self, proc, name: str) -> tuple[bool, str, bool]:  # noqa: D401
         exe = _safe(proc.exe) or ""
         user = _safe(proc.username)
         owned = bool(user and self._me and user.lower() == self._me.lower())

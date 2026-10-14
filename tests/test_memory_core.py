@@ -351,6 +351,69 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class ProcessBufferTests(unittest.TestCase):
+    def test_layout_matches_x64_windows(self):
+        import ctypes
+
+        from app.memory.winapi import SYSTEM_PROCESS_INFORMATION as S
+
+        self.assertEqual(ctypes.sizeof(S), 0x100)
+        self.assertEqual(S.ImageName.offset, 56)
+        self.assertEqual(S.UniqueProcessId.offset, 80)
+        self.assertEqual(S.HandleCount.offset, 96)
+        self.assertEqual(S.WorkingSetSize.offset, 144)
+        self.assertEqual(S.PagefileUsage.offset, 184)
+
+    def test_parse_chain(self):
+        import ctypes
+
+        from app.memory import winapi
+
+        S = winapi.SYSTEM_PROCESS_INFORMATION
+        entry = 0x100 + 64  # запись + место под имя (у реальных записей за ней ещё потоки)
+        buf = ctypes.create_string_buffer(entry * 2)
+        base = ctypes.addressof(buf)
+        names = ["", "chrome.exe"]
+        for i, (pid, name) in enumerate(((0, names[0]), (1234, names[1]))):
+            e = S.from_address(base + i * entry)
+            e.NextEntryOffset = entry if i == 0 else 0
+            e.UniqueProcessId = pid
+            e.CreateTime = int((1_700_000_000 + winapi.EPOCH_DIFF_SEC) * 1e7) if pid else 0
+            e.UserTime, e.KernelTime = 20_000_000, 5_000_000
+            e.WorkingSetSize, e.PagefileUsage, e.WorkingSetPrivateSize = 300 * MB, 500 * MB, 200 * MB
+            e.HandleCount, e.SessionId = 900, 1
+            if name:
+                addr = base + i * entry + 0x100
+                ctypes.memmove(addr, name.encode("utf-16-le"), len(name) * 2)
+                e.ImageName.Buffer = addr
+                e.ImageName.Length = e.ImageName.MaximumLength = len(name) * 2
+        procs = winapi.parse_process_buffer(buf, len(buf))
+        self.assertEqual([(p.pid, p.name) for p in procs], [(0, "System Idle Process"), (1234, "chrome.exe")])
+        chrome = procs[1]
+        self.assertAlmostEqual(chrome.create_time, 1_700_000_000, delta=0.001)
+        self.assertEqual((chrome.working_set, chrome.private_bytes, chrome.private_ws), (300 * MB, 500 * MB, 200 * MB))
+        self.assertAlmostEqual(chrome.cpu_time, 2.5)
+        self.assertEqual(chrome.handles, 900)
+
+    @unittest.skipUnless(sys.platform == "win32", "только Windows")
+    def test_snapshot_matches_psutil_for_self(self):
+        import psutil
+
+        from app.memory import winapi
+
+        snap = {p.pid: p for p in winapi.process_snapshot()}
+        me = snap[os.getpid()]
+        ps = psutil.Process()
+        mi = ps.memory_info()
+        self.assertAlmostEqual(me.create_time, ps.create_time(), delta=1.0)
+        self.assertAlmostEqual(me.private_bytes / mi.private, 1.0, delta=0.15)
+        self.assertGreater(me.working_set, 0)
+        self.assertGreater(me.private_ws, 0)
+        self.assertLessEqual(me.private_ws, me.working_set)
+        self.assertEqual(me.name.lower(), ps.name().lower())
+        self.assertGreater(len(snap), 20)
+
+
 class ReportTests(unittest.TestCase):
     def test_windows_11_label(self):
         from unittest import mock
