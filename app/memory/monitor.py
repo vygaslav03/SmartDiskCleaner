@@ -65,6 +65,9 @@ class MemoryMonitor:
         self._prev_cpu: dict = {}
         self._prev_proc_time = 0.0
         self._last_proc_scan = 0.0
+        # Один долгий рост не должен давать событие на каждом шаге: пауза между событиями.
+        self.spike_cooldown = 60.0
+        self._last_spike: dict[str, float] = {}
 
     # ----------------------------------------------------------------- control
     def add_listener(self, fn: Callable[[MonitorState], None]) -> None:
@@ -84,6 +87,7 @@ class MemoryMonitor:
             self._thread.join(timeout)
         if self._sys_collector is not None:
             self._sys_collector.close()
+            self._sys_collector = None  # при следующем start() PDH-запрос откроется заново
 
     @property
     def running(self) -> bool:
@@ -149,7 +153,7 @@ class MemoryMonitor:
         assessment = analysis.assess_system(snap, points, self.cfg)
         spike = analysis.detect_system_spike(points, snap.total, self.cfg)
         if spike is not None:
-            self.events.add(spike)
+            self._add_spike("system", spike)
         cost = (time.perf_counter() - t0) * 1000
         with self._lock:
             self._state.system = snap
@@ -163,7 +167,7 @@ class MemoryMonitor:
         self.process_history.add(ts, procs)
         leaks = analysis.detect_leaks(self.process_history.items(), self.cfg)
         for ev in analysis.detect_process_spikes(self._prev_footprint, procs, ts, self.cfg):
-            self.events.add(ev)
+            self._add_spike(f"p:{ev.pid}:{ev.name}", ev)
         mono = time.monotonic()
         idle = analysis.idle_processes(self._prev_cpu, procs, mono - self._prev_proc_time) \
             if self._prev_proc_time else set()
@@ -177,6 +181,13 @@ class MemoryMonitor:
             self._state.leaks = leaks
             self._state.idle = idle
             self._state.cost_process_ms = _ema(self._state.cost_process_ms, cost)
+
+    def _add_spike(self, key: str, event: SpikeEvent) -> None:
+        last = self._last_spike.get(key)
+        if last is not None and event.timestamp - last < self.spike_cooldown:
+            return
+        self._last_spike[key] = event.timestamp
+        self.events.add(event)
 
     def recent_spikes(self, limit: int = 50) -> list[SpikeEvent]:
         return self.events.items()[-limit:]

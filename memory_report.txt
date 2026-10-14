@@ -1,0 +1,47 @@
+DiskCleaner memory report — 2026-10-14 08:02:32
+OS: Linux 6.18.44-fc-v114 (#1 SMP PREEMPT_DYNAMIC @0), Python 3.13.16, admin=True
+Own memory at start: working set 18.11 MB, private 0 B
+
+[System]  source=psutil, page lists available=False
+  Total            7.84 GB
+  Available        7.20 GB   (Task Manager: Available)
+  Memory load      8%
+  In use           —   (Resource Monitor: In Use)
+  Modified         —
+  Standby          —  core/normal/reserve = 0 B / 0 B / 0 B
+  Free+Zero        —
+  Committed        654.54 MB / 7.84 GB (8%), peak 0 B   (Task Manager: Committed)
+  CHECK commit ≤ limit: OK
+  System cache     1.76 GB
+  Kernel paged/np  0 B / 0 B
+  Hard faults      —
+  Pagefile usage   —
+  Collection cost  median 0.39 ms (first 0.3 ms)
+
+[Assessment] OK
+  - INFO: no_fault_data {}
+  - OK: no_action_needed {'avail_pct': 91.84848072076981}
+
+[Pagefile] config known=False, disabled=None, system_managed=None, lines=[]
+
+[Processes] 66 listed, private bytes known for 0, owned=65, protected=3; scan 17 ms (cold), 5 ms (cached)
+  name                                 private   working set  flags
+  claude                                   0 B     340.20 MB  owned
+  environment-manager                      0 B      41.42 MB  owned
+  rclone-filestore                         0 B      31.48 MB  owned
+  python3                                  0 B      18.62 MB  owned,protected
+  process_api                              0 B       5.47 MB  owned
+  bash                                     0 B       3.39 MB  owned
+  6                                        0 B       2.91 MB  protected
+  sh                                       0 B       1.91 MB  owned
+  head                                     0 B       1.61 MB  owned
+  kthreadd                                 0 B           0 B  owned
+  pool_workqueue_release                   0 B           0 B  owned
+  kworker/R-rcu_gp                         0 B           0 B  owned,protected
+  kworker/R-sync_wq                        0 B           0 B  owned
+  kworker/R-kvfree_rcu_reclaim             0 B           0 B  owned
+  kworker/R-slub_flushwq                   0 B           0 B  owned
+
+[Startup] 0 entries
+
+Own memory at end: working set 18.62 MB, private 0 B

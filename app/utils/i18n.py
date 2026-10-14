@@ -1125,6 +1125,12 @@ EN: dict[str, str] = {
     "reason.recycle_failed": "Could not empty the Recycle Bin",
 }
 
+from app.utils import i18n_memory as _mem  # noqa: E402 - строки раздела «Память»
+
+RU.update(_mem.RU)
+UK.update(_mem.UK)
+EN.update(_mem.EN)
+
 LANGS = {"ru": RU, "uk": UK, "en": EN}
 
 

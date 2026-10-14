@@ -64,6 +64,22 @@ def run_selftest() -> int:
     core_cleaner.Cleaner.delete_user_files = _blocked  # type: ignore[method-assign]
     core_cleaner.remove_file_permanently = _blocked  # type: ignore[assignment]
     core_cleaner.send_to_trash = _blocked  # type: ignore[assignment]
+    # Память: никаких действий с процессами, автозагрузкой и кэшем Windows.
+    from app.memory import actions as mem_actions
+    from app.memory import journal as mem_journal
+    from app.memory import startup as mem_startup
+    from app.memory import winapi as mem_winapi
+
+    def _mem_blocked(*_a, **_k):
+        raise RuntimeError("Действия с памятью заблокированы в режиме самопроверки")
+
+    for _name in ("close_app", "terminate", "trim_working_set", "purge_standby", "set_startup", "undo_entry"):
+        setattr(mem_actions, _name, _mem_blocked)
+    for _name in ("post_close_to_windows", "empty_working_set", "purge_standby_list"):
+        setattr(mem_winapi, _name, _mem_blocked)
+    mem_startup.set_enabled = _mem_blocked  # type: ignore[assignment]
+    mem_startup.undo = _mem_blocked  # type: ignore[assignment]
+    mem_journal.set_journal(mem_journal.ActionJournal(out / "_sandbox_memory_actions.json"))
     # Самопроверка не должна менять settings.json пользователя.
     import app.ui.duplicates as ui_dup
     import app.ui.settings as ui_set
@@ -79,6 +95,9 @@ def run_selftest() -> int:
     shutil.rmtree(out / "_sandbox_quarantine", ignore_errors=True)
     core_q.set_quarantine(core_q.QuarantineStore(out / "_sandbox_quarantine"))
     ui_set.save_settings = lambda *_a, **_k: True  # type: ignore[assignment]
+    import app.ui.memory as ui_mem
+
+    ui_mem.save_settings = lambda *_a, **_k: True  # type: ignore[assignment]
 
     def _box(kind):
         def inner(*args, **_k):
@@ -200,7 +219,7 @@ def _run_steps(app, out: Path, sandbox: Path, settings, theme, set_language) -> 
     win.show()
     _wait(app, lambda: False, 0.5)
 
-    names = ["dashboard", "cleaner", "analyzer", "large", "duplicates", "history", "quarantine", "settings"]
+    names = ["dashboard", "cleaner", "analyzer", "large", "duplicates", "history", "quarantine", "settings", "memory"]
     for i, n in enumerate(names):
         _step(f"open page {n}", lambda i=i: win.go_to(i))
         _shot(app, win, out, f"dark_{i}_{n}_empty")
@@ -613,6 +632,45 @@ def _run_steps(app, out: Path, sandbox: Path, settings, theme, set_language) -> 
     _shot(app, win, out, "dark_4_duplicates_found")
     # Восстановить список папок пользователя (start_scan сохранил временную папку).
     settings.duplicate_folders = []
+
+    def memory_page():
+        from app.memory import actions as mem_actions_check
+
+        win.go_to(8)
+        page = win.memory
+        if not _wait(app, lambda: page._state is not None and page._state.system is not None, 15):
+            raise TimeoutError("нет снимка памяти за 15 с")
+        s = page._state.system
+        _log(f"memory: total={s.total} avail={s.available} commit={s.commit_total}/{s.commit_limit} "
+             f"source={s.source} lists={s.has_lists}")
+        if not (0 < s.available <= s.total and s.commit_total <= s.commit_limit * 1.01):
+            raise AssertionError("некорректные показатели памяти")
+        page.set_mode("recommend", save=False)
+        page.quick_analysis()
+        if not _wait(app, lambda: not page.busy, 30):
+            raise TimeoutError("быстрый анализ > 30 с")
+        _log(f"memory: processes={len(page._state.processes)} recs={len(page._recs)} "
+             f"startup={len(page._startup)} cost_sys={page._state.cost_system_ms:.1f}ms "
+             f"cost_proc={page._state.cost_process_ms:.0f}ms")
+        if not page._state.processes:
+            raise AssertionError("список процессов пуст")
+        try:
+            mem_actions_check.close_app(1, 0.0)
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("действия с памятью должны быть заблокированы")
+        _shot(app, win, out, "dark_8_memory_overview")
+        for i, tab in enumerate(("processes", "startup", "details", "journal"), start=1):
+            page.tabs.setCurrentIndex(i)
+            _wait(app, lambda: False, 0.3)
+            _shot(app, win, out, f"dark_8_memory_{tab}")
+        page.tabs.setCurrentIndex(0)
+        page.set_mode("manual", save=False)
+        _shot(app, win, out, "dark_8_memory_manual")
+        page.set_mode("monitor", save=False)
+
+    _step("memory page", memory_page)
 
     # --- светлая тема
     theme.apply_theme(app, "light")

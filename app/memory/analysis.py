@@ -119,10 +119,11 @@ def assess_system(snap: SystemMemory, points: Sequence[SystemPoint] = (), cfg: T
         findings.append(Finding("no_fault_data", Severity.INFO))
 
     worst = max((f.severity for f in findings), default=Severity.OK)
-    if worst < Severity.WATCH:
-        findings.insert(0, Finding("no_action_needed", Severity.OK, {"avail_pct": avail_pct}))
-        worst = Severity.OK if worst <= Severity.INFO else worst
     findings.sort(key=lambda f: f.severity, reverse=True)
+    if worst < Severity.WATCH:
+        # главный вывод — первым; INFO-пояснения (кэш и т. п.) после него
+        findings.insert(0, Finding("no_action_needed", Severity.OK, {"avail_pct": avail_pct}))
+        worst = Severity.OK
     return Assessment(worst, findings)
 
 

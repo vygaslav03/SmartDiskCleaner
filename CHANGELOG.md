@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Memory** page: real-time RAM monitoring without admin rights (WinAPI + PDH + psutil), physical memory composition (in use / modified / standby / free), commit charge vs limit, disk page reads, per-process private bytes and working set, usage history chart with spike markers.
+- Memory analysis that separates real problems (commit near limit, sustained paging under low available memory, steady private-bytes growth) from normal cache use, and says when no action is needed.
+- Three modes: Monitoring, Recommendations (read-only), Manual optimization (selected actions after confirmation).
+- Manual actions: graceful close, forced terminate (double confirmation), per-process working-set trim, Task-Manager-compatible startup disable with undo, low-priority standby purge (admin, gated). PID-reuse protection; system and other users' processes are refused.
+- Action journal with before/after measurements; page-file configuration check (advice only).
+- `--memory-report` diagnostic command.
+
 ## [1.0.0] — 2026-10-04
 
 First public release.

@@ -93,6 +93,27 @@ class CollectorTests(unittest.TestCase):
             self.assertAlmostEqual((s.standby + s.free_zero) / s.available, 1.0, delta=0.05)
             self.assertIsNotNone(s.hard_faults_per_sec)
 
+    @unittest.skipUnless(sys.platform == "win32", "только Windows")
+    def test_windows_read_only_apis(self):
+        from app.memory import winapi
+
+        pf = winapi.pagefiles()
+        self.assertIsNotNone(pf, "NtQuerySystemInformation(PageFile) должен работать без админа")
+        for f in pf:
+            self.assertGreaterEqual(f.total, f.in_use)
+        self.assertIsInstance(winapi.pids_with_visible_windows(), set)
+        q = winapi.PdhQuery(collector.PDH_COUNTERS)
+        self.assertTrue(q.ok)
+        q.collect()
+        time.sleep(1.1)
+        values = q.collect()
+        q.close()
+        for key in ("standby_core", "modified", "free_zero", "pages_input"):
+            self.assertIn(key, values)
+        cfg = collector.read_pagefile_config()
+        self.assertTrue(cfg.known)
+        startup.list_system_startup()  # не падает
+
     def test_process_scan_contains_self(self):
         procs = collector.ProcessCollector(services_provider=dict).scan()
         me = [p for p in procs if p.pid == os.getpid()]
@@ -301,6 +322,17 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(len(state.processes), 1)
         # 200 -> 400 -> 600 МБ: скачок +200 МБ меньше порога 300 МБ и 50%? 400->600 = +50% — порог
         self.assertTrue(all(e.scope == "process" for e in m.recent_spikes()))
+
+    def test_sustained_growth_gives_one_spike(self):
+        sysc = FakeSys()
+        m = MemoryMonitor(sysc, FakeProcs(), system_interval=2)
+        for i in range(40):
+            sysc.commit = 4 * GB + (i // 20) * 2 * GB + (i % 20) * 0  # ступенька на 20-м шаге
+            if i >= 20:
+                sysc.commit += (i - 20) * 600 * MB  # и дальше быстрый рост
+            m.tick(now=float(i))
+        system = [e for e in m.recent_spikes() if e.scope == "system"]
+        self.assertEqual(len(system), 1)
 
     def test_thread_start_stop(self):
         m = MemoryMonitor(FakeSys(), FakeProcs(), system_interval=0.05)

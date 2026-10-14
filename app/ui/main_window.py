@@ -32,12 +32,28 @@ from app.ui.dashboard import DashboardPage
 from app.ui.duplicates import DuplicatesPage
 from app.ui.history import HistoryPage
 from app.ui.large_files import LargeFilesPage
+from app.ui.memory import MemoryPage
+from app.memory.monitor import MemoryMonitor
 from app.ui.quarantine import QuarantinePage
 from app.ui.settings import SettingsPage
 
 log = get_logger("ui.main")
 
 PAGE_DASHBOARD, PAGE_CLEANER, PAGE_ANALYZER, PAGE_LARGE, PAGE_DUPLICATES, PAGE_HISTORY, PAGE_QUARANTINE, PAGE_SETTINGS = range(8)
+PAGE_MEMORY = 8  # индекс в стеке; в меню кнопка стоит второй (после «Обзора»)
+
+# (индекс страницы, ключ подписи) в порядке кнопок бокового меню
+NAV_ORDER = (
+    (PAGE_DASHBOARD, "nav.dashboard"),
+    (PAGE_MEMORY, "nav.memory"),
+    (PAGE_CLEANER, "nav.cleaner"),
+    (PAGE_ANALYZER, "nav.analyzer"),
+    (PAGE_LARGE, "nav.large"),
+    (PAGE_DUPLICATES, "nav.duplicates"),
+    (PAGE_HISTORY, "nav.history"),
+    (PAGE_QUARANTINE, "nav.quarantine"),
+    (PAGE_SETTINGS, "nav.settings"),
+)
 
 
 class MainWindow(QMainWindow):
@@ -70,7 +86,7 @@ class MainWindow(QMainWindow):
 
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
-        for idx, key in enumerate(("nav.dashboard", "nav.cleaner", "nav.analyzer", "nav.large", "nav.duplicates", "nav.history", "nav.quarantine", "nav.settings")):
+        for idx, key in NAV_ORDER:
             btn = QPushButton(tr(key))
             btn.setObjectName("NavButton")
             btn.setCheckable(True)
@@ -106,8 +122,15 @@ class MainWindow(QMainWindow):
         self.history = HistoryPage()
         self.quarantine = QuarantinePage(settings)
         self.settings_page = SettingsPage(settings)
-        for page in (self.dashboard, self.cleaner, self.analyzer, self.large, self.duplicates, self.history, self.quarantine, self.settings_page):
+        self.memory_monitor = MemoryMonitor()
+        self.memory = MemoryPage(settings, self.memory_monitor)
+        for page in (self.dashboard, self.cleaner, self.analyzer, self.large, self.duplicates, self.history,
+                     self.quarantine, self.settings_page, self.memory):
             self.stack.addWidget(page)
+        # Фоновый мониторинг нужен для поиска утечек (нужна история за 10+ минут).
+        # Без него сбор идёт только пока открыта страница «Память».
+        if settings.memory_background:
+            self.memory_monitor.start()
         layout.addWidget(self.stack, 1)
 
         drive = self.dashboard.current_drive()
@@ -168,8 +191,12 @@ class MainWindow(QMainWindow):
 
     def _on_settings_changed(self, settings: Settings) -> None:
         self.settings = settings
-        for page in (self.cleaner, self.analyzer, self.large, self.duplicates, self.quarantine):
+        for page in (self.cleaner, self.analyzer, self.large, self.duplicates, self.quarantine, self.memory):
             page.update_settings(settings)
+        if settings.memory_background:
+            self.memory_monitor.start()
+        elif self.stack.currentWidget() is not self.memory:
+            self.memory_monitor.stop()
         app = QApplication.instance()
         if app is not None:
             theme.apply_theme(app, settings.theme)
@@ -178,7 +205,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------ elevation
     def _any_busy(self) -> bool:
         return (self.cleaner.busy or self.analyzer.busy or self.large.busy or self.duplicates.busy
-                or self.quarantine.busy)
+                or self.quarantine.busy or self.memory.busy)
 
     def request_elevation(self) -> None:
         if self._any_busy():
@@ -212,7 +239,8 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
-        for page in (self.cleaner, self.analyzer, self.large, self.duplicates, self.quarantine):
+        for page in (self.cleaner, self.analyzer, self.large, self.duplicates, self.quarantine, self.memory):
             page.shutdown()
+        self.memory_monitor.stop()
         log.info("Приложение закрыто")
         event.accept()

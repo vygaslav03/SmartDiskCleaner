@@ -273,6 +273,7 @@ class PdhQuery:
 
 
 _USER32 = None
+_ENUM_PROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM) if IS_WINDOWS else None
 
 
 def _user32():
@@ -280,7 +281,7 @@ def _user32():
     global _USER32
     if _USER32 is None:
         u = _dll("user32")
-        u.EnumWindows.argtypes = [ctypes.c_void_p, wintypes.LPARAM]
+        u.EnumWindows.argtypes = [_ENUM_PROC, wintypes.LPARAM]
         u.EnumWindows.restype = wintypes.BOOL
         u.IsWindowVisible.argtypes = [wintypes.HWND]
         u.IsWindowVisible.restype = wintypes.BOOL
@@ -295,8 +296,6 @@ def _user32():
         _USER32 = u
     return _USER32
 
-
-_ENUM_PROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM) if IS_WINDOWS else None
 
 
 

@@ -46,7 +46,7 @@ class AssessTests(unittest.TestCase):
     def test_healthy_system_says_no_action_needed(self):
         a = assess_system(snap(), points(hard_faults=10))
         self.assertEqual(a.severity, Severity.OK)
-        self.assertIn("no_action_needed", self.codes(a))
+        self.assertEqual(self.codes(a)[0], "no_action_needed")
         self.assertFalse(a.needs_action)
 
     def test_high_usage_with_big_cache_is_not_a_problem(self):
