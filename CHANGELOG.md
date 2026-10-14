@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.1.0] — 2026-10-14
 
 ### Added
 - **Memory** page: real-time RAM monitoring without admin rights (WinAPI + PDH + psutil), physical memory composition (in use / modified / standby / free), commit charge vs limit, disk page reads, per-process private bytes and working set, usage history chart with spike markers.
