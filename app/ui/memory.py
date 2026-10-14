@@ -756,6 +756,8 @@ class MemoryPage(QWidget):
         startup, pagefile = result
         self._startup = {i.id: i for i in startup}
         self._pagefile = pagefile
+        if pagefile is not None:
+            self.monitor.pagefile = pagefile
         self._fill_startup()
         if self._analysis_requested_at is None:
             self._finish_analysis()
@@ -918,6 +920,8 @@ class MemoryPage(QWidget):
         startup, pagefile = result
         self._startup = {i.id: i for i in startup}
         self._pagefile = pagefile
+        if pagefile is not None:
+            self.monitor.pagefile = pagefile
         self._fill_startup()
 
     def _fill_startup(self) -> None:
@@ -1005,7 +1009,7 @@ class MemoryPage(QWidget):
                                     median="—" if hf is None else f"{hf:.0f}"))
         L["page_reads"].setText("—" if s.page_reads_per_sec is None else f"{s.page_reads_per_sec:.0f}/s")
         L["process_count"].setText("—" if s.process_count is None else str(s.process_count))
-        pf = self._pagefile
+        pf = self._pagefile or self.monitor.pagefile
         if pf is None:
             L["pf_files"].setText(tr("mem.d.pf_not_loaded"))
             L["pf_config"].setText("—")

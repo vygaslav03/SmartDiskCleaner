@@ -349,3 +349,19 @@ class MonitorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReportTests(unittest.TestCase):
+    def test_windows_11_label(self):
+        from unittest import mock
+
+        from app.memory import report
+
+        with mock.patch("platform.system", return_value="Windows"), \
+                mock.patch("platform.release", return_value="10"), \
+                mock.patch("platform.version", return_value="10.0.26200"):
+            self.assertEqual(report.os_label(), "Windows 11 (build 10.0.26200)")
+        with mock.patch("platform.system", return_value="Windows"), \
+                mock.patch("platform.release", return_value="10"), \
+                mock.patch("platform.version", return_value="10.0.19045"):
+            self.assertEqual(report.os_label(), "Windows 10 (build 10.0.19045)")

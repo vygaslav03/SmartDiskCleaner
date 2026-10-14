@@ -14,9 +14,9 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from app.memory import analysis
-from app.memory.collector import ProcessCollector, SystemCollector
+from app.memory.collector import ProcessCollector, SystemCollector, read_pagefile_config
 from app.memory.history import EventLog, ProcessHistory, SystemHistory
-from app.memory.models import Assessment, LeakSuspect, ProcessMemory, SpikeEvent, SystemMemory
+from app.memory.models import PagefileConfig, Assessment, LeakSuspect, ProcessMemory, SpikeEvent, SystemMemory
 from app.utils.logger import get_logger
 
 log = get_logger("memory.monitor")
@@ -67,6 +67,7 @@ class MemoryMonitor:
         self._last_proc_scan = 0.0
         # Один долгий рост не должен давать событие на каждом шаге: пауза между событиями.
         self.spike_cooldown = 60.0
+        self.pagefile: PagefileConfig | None = None
         self._last_spike: dict[str, float] = {}
 
     # ----------------------------------------------------------------- control
@@ -120,6 +121,11 @@ class MemoryMonitor:
         except Exception:  # noqa: BLE001
             log.exception("Не удалось инициализировать сбор памяти")
             return
+        if self.pagefile is None:
+            try:
+                self.pagefile = read_pagefile_config()  # одно чтение реестра при старте
+            except Exception:  # noqa: BLE001
+                log.exception("Не удалось прочитать настройку файла подкачки")
         while not self._stop.is_set():
             self.tick()
             self._wake.wait(self.system_interval)
@@ -150,7 +156,7 @@ class MemoryMonitor:
         snap = self._sys_collector.snapshot()  # type: ignore[union-attr]
         self.system_history.add(snap)
         points = self.system_history.points()
-        assessment = analysis.assess_system(snap, points, self.cfg)
+        assessment = analysis.assess_system(snap, points, self.cfg, self.pagefile)
         spike = analysis.detect_system_spike(points, snap.total, self.cfg)
         if spike is not None:
             self._add_spike("system", spike)

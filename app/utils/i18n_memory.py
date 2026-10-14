@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 RU: dict[str, str] = {
+    "mem.f.commit_high_auto": "Выделено {pct}% от лимита. Файл подкачки «по выбору системы» — Windows сама увеличит его при необходимости, поэтому это повод наблюдать, а не тревога.",
+    "mem.rec.ram_cleaner.title": "Автозагрузка: {name} — «очиститель RAM»",
+    "mem.rec.ram_cleaner.body": "Такие программы по таймеру выгружают страницы программ из памяти и/или сбрасывают кэш. Цифра «занято» падает, но Windows приходится заново читать данные с диска — обычно это замедляет, а не ускоряет. Windows управляет памятью сама; автозапуск лучше отключить (можно отменить).",
     "set.memory_background": "Следить за памятью в фоне",
     "set.memory_background_hint": "Нужно для поиска утечек: процесс должен наблюдаться 10+ минут. Стоит заметно меньше 1% CPU и около 1 МБ памяти. Если выключить, сбор идёт только пока открыт раздел «Память».",
     "nav.memory": "Память",
@@ -271,6 +274,9 @@ RU: dict[str, str] = {
 }
 
 UK: dict[str, str] = {
+    "mem.f.commit_high_auto": "Виділено {pct}% від ліміту. Файл підкачки «за вибором системи» — Windows сама збільшить його за потреби, тож це привід спостерігати, а не тривога.",
+    "mem.rec.ram_cleaner.title": "Автозавантаження: {name} — «очищувач RAM»",
+    "mem.rec.ram_cleaner.body": "Такі програми за таймером вивантажують сторінки програм з пам'яті та/або скидають кеш. Цифра «зайнято» падає, але Windows доводиться знову читати дані з диска — зазвичай це сповільнює, а не пришвидшує. Windows керує пам'яттю сама; автозапуск краще вимкнути (можна скасувати).",
     "set.memory_background": "Стежити за пам'яттю у фоні",
     "set.memory_background_hint": "Потрібно для пошуку витоків: процес має спостерігатися 10+ хвилин. Коштує помітно менше 1% CPU і близько 1 МБ пам'яті. Якщо вимкнути, збір іде лише поки відкрито розділ «Пам'ять».",
     "nav.memory": "Пам'ять",
@@ -539,6 +545,9 @@ UK: dict[str, str] = {
 }
 
 EN: dict[str, str] = {
+    "mem.f.commit_high_auto": "{pct}% of the commit limit is used. The page file is system managed — Windows grows it when needed, so this is worth watching, not an alarm.",
+    "mem.rec.ram_cleaner.title": "Startup: {name} is a \"RAM cleaner\"",
+    "mem.rec.ram_cleaner.body": "Such tools periodically force program pages out of RAM and/or drop the cache. The \"used\" number goes down, but Windows has to read the data back from disk — this usually slows things down rather than speeding them up. Windows manages memory itself; disabling autostart is recommended (can be undone).",
     "set.memory_background": "Monitor memory in the background",
     "set.memory_background_hint": "Needed for leak detection: a process must be observed for 10+ minutes. Costs well under 1% CPU and about 1 MB of RAM. When off, data is collected only while the Memory page is open.",
     "nav.memory": "Memory",

@@ -87,15 +87,32 @@ def sustained_hard_faults(points: Sequence[SystemPoint], window_sec: float) -> f
     return statistics.median(vals)
 
 
-def assess_system(snap: SystemMemory, points: Sequence[SystemPoint] = (), cfg: Thresholds = DEFAULT) -> Assessment:
+# Утилиты «очистки RAM»: принудительно выгружают рабочие наборы и/или сбрасывают кэш по таймеру.
+# Это мешает Windows кэшировать данные и обычно добавляет чтения с диска.
+RAM_CLEANERS = frozenset({
+    "memreduct.exe", "wisememoryoptimizer.exe", "cleanmem.exe", "mini_monitor.exe", "ramrush.exe",
+    "mzrambooster.exe", "memorycleaner.exe", "rambooster.exe", "ramsaverpro.exe", "ramsaver.exe",
+})
+
+
+def assess_system(snap: SystemMemory, points: Sequence[SystemPoint] = (), cfg: Thresholds = DEFAULT,
+                  pagefile: PagefileConfig | None = None) -> Assessment:
+    """pagefile — конфигурация файла подкачки: если размер «по выбору системы», Windows сама
+    увеличит файл (и лимит commit) при нехватке, поэтому 85–95% — повод наблюдать, а не тревога."""
     findings: list[Finding] = []
+    auto_grow = bool(pagefile and pagefile.known and pagefile.system_managed)
     avail_pct = 100.0 * snap.available / snap.total if snap.total else 100.0
     commit_pct = 100.0 * snap.commit_ratio
 
     if snap.commit_ratio >= cfg.commit_critical:
-        findings.append(Finding("commit_critical", Severity.CRITICAL, {"pct": commit_pct}))
+        # даже при авторасширении файл может не успеть вырасти — но это уже не «критично»
+        sev = Severity.WARNING if auto_grow else Severity.CRITICAL
+        findings.append(Finding("commit_critical", sev, {"pct": commit_pct}))
     elif snap.commit_ratio >= cfg.commit_warning:
-        findings.append(Finding("commit_high", Severity.WARNING, {"pct": commit_pct}))
+        if auto_grow:
+            findings.append(Finding("commit_high_auto", Severity.WATCH, {"pct": commit_pct}))
+        else:
+            findings.append(Finding("commit_high", Severity.WARNING, {"pct": commit_pct}))
 
     hf = sustained_hard_faults(points, cfg.paging_window_sec)
     hf_bytes = hf * 4096 if hf is not None else None
@@ -285,6 +302,11 @@ def build_recommendations(
         names.setdefault(p.name.lower(), []).append(p)
     for item in startup_items:
         if not getattr(item, "enabled", False) or not getattr(item, "exe_name", ""):
+            continue
+        if item.exe_name.lower() in RAM_CLEANERS:
+            recs.append(Recommendation(ActionKind.STARTUP_DISABLE, "ram_cleaner", {},
+                                       target_name=item.name, startup_id=item.id, reversible=True,
+                                       needs_admin=item.needs_admin, priority=55))
             continue
         running = names.get(item.exe_name.lower(), [])
         total = sum(p.footprint for p in running)

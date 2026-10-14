@@ -86,6 +86,17 @@ class AssessTests(unittest.TestCase):
         self.assertEqual(assess_system(snap(commit=19.5 * GB), points()).severity, Severity.CRITICAL)
         self.assertEqual(assess_system(snap(commit=16 * GB), points()).severity, Severity.OK)
 
+    def test_commit_high_with_system_managed_pagefile_is_watch(self):
+        auto = PagefileConfig(known=True, disabled=False, system_managed=True)
+        fixed = PagefileConfig(known=True, disabled=False, system_managed=False)
+        # реальный случай с ноутбука: 16.1 / 18.4 ГБ (88%), файл подкачки по выбору системы
+        s = snap(commit=int(16.12 * GB), limit=int(18.42 * GB))
+        a = assess_system(s, points(), pagefile=auto)
+        self.assertEqual(a.severity, Severity.WATCH)
+        self.assertIn("commit_high_auto", self.codes(a))
+        self.assertEqual(assess_system(s, points(), pagefile=fixed).severity, Severity.WARNING)
+        self.assertEqual(assess_system(snap(commit=19.5 * GB), points(), pagefile=auto).severity, Severity.WARNING)
+
     def test_unknown_faults_reported(self):
         a = assess_system(snap(), [])
         self.assertIn("no_fault_data", self.codes(a))
@@ -218,6 +229,12 @@ class RecommendationTests(unittest.TestCase):
         recs = build_recommendations(snap(), self.ok, procs, startup_items=items)
         self.assertEqual([(r.kind, r.target_name, r.reversible) for r in recs],
                          [(ActionKind.STARTUP_DISABLE, "Discord", True)])
+
+    def test_ram_cleaner_in_startup(self):
+        items = [StartupItem("hkcu_run:Mem Reduct", "Mem Reduct", "x", "hkcu_run", True, "memreduct.exe"),
+                 StartupItem("hkcu_run:Off", "Off", "x", "hkcu_run", False, "cleanmem.exe")]
+        recs = build_recommendations(snap(), self.ok, [proc(1, "memreduct.exe", 400 * MB)], startup_items=items)
+        self.assertEqual([(r.code, r.target_name, r.reversible) for r in recs], [("ram_cleaner", "Mem Reduct", True)])
 
     def test_standby_purge_requires_objective_reason(self):
         normal = snap(standby=6 * GB, free=2 * GB, modified=100 * MB)

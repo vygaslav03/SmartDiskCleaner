@@ -26,14 +26,26 @@ from app.memory.startup import list_system_startup
 from app.utils.format_size import format_size
 
 
+def os_label() -> str:
+    """platform.release() на Python < 3.12 называет Windows 11 «10» — определяем по номеру сборки."""
+    version = platform.version()
+    if platform.system() == "Windows":
+        try:
+            build = int(version.split(".")[2])
+        except (IndexError, ValueError):
+            build = 0
+        name = "Windows 11" if build >= 22000 else f"Windows {platform.release()}"
+        return f"{name} (build {version})"
+    return f"{platform.system()} {platform.release()} ({version})"
+
+
 def build_report(samples: int = 6, interval: float = 1.0) -> list[str]:
     from app.utils.permissions import is_admin
 
     lines: list[str] = []
     add = lines.append
     add(f"DiskCleaner memory report — {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    add(f"OS: {platform.system()} {platform.release()} ({platform.version()}), Python {platform.python_version()}, "
-        f"admin={is_admin()}")
+    add(f"OS: {os_label()}, Python {platform.python_version()}, admin={is_admin()}")
     ws0, pb0 = own_process_memory()
     add(f"Own memory at start: working set {format_size(ws0)}, private {format_size(pb0 or 0)}")
     add("")
@@ -76,13 +88,13 @@ def build_report(samples: int = 6, interval: float = 1.0) -> list[str]:
     add(f"  Collection cost  median {statistics.median(sys_costs):.2f} ms (first {sys_costs[0]:.1f} ms)")
     add("")
 
-    a = analysis.assess_system(s, hist.points())
+    pf = read_pagefile_config()
+    a = analysis.assess_system(s, hist.points(), pagefile=pf)
     add(f"[Assessment] {a.severity.name}")
     for f in a.findings:
         add(f"  - {f.severity.name}: {f.code} {f.params}")
     add("")
 
-    pf = read_pagefile_config()
     add(f"[Pagefile] config known={pf.known}, disabled={pf.disabled}, system_managed={pf.system_managed}, "
         f"lines={pf.configured}")
     for f in pf.files:
@@ -110,6 +122,9 @@ def build_report(samples: int = 6, interval: float = 1.0) -> list[str]:
     add(f"[Startup] {len(items)} entries")
     for it in items:
         add(f"  {'ON ' if it.enabled else 'OFF'} {it.location:<14} {it.name}  (exe: {it.exe_name or '—'})")
+    cleaners = [it.name for it in items if it.enabled and it.exe_name.lower() in analysis.RAM_CLEANERS]
+    if cleaners:
+        add(f"  NOTE: RAM cleaner in startup: {', '.join(cleaners)} — it forces pages out of RAM / drops the cache")
     add("")
     ws1, pb1 = own_process_memory()
     add(f"Own memory at end: working set {format_size(ws1)}, private {format_size(pb1 or 0)}")
